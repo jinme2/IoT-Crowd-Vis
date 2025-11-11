@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify 
+from flask import Flask, request, jsonify, render_template
 #request: 클라이언트가 보낸 데이터 읽을 때 사용
 #jsonify: python Dict -> JSON으로 변환해서 응답할 때 사용
 import sqlite3, pandas as pd, time, threading
