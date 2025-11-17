@@ -1,17 +1,37 @@
-from flask import Flask, request, jsonify, render_template
-#request: 클라이언트가 보낸 데이터 읽을 때 사용
-#jsonify: python Dict -> JSON으로 변환해서 응답할 때 사용
-import sqlite3, pandas as pd, time, threading
-#tiem: 현재 시간 기록용
+from flask import Flask, request, jsonify
+import sqlite3, pandas as pd, time, threading, os
 
 app = Flask(__name__)
+
 DB_PATH = 'crowd.db'
 CSV_PATH = 'crowd_backup.csv'
 
 # ------------------------------
-# 1. DB 초기화 (테이블 없으면 생성)
+# CSV → DB 복구 함수
+# ------------------------------
+def restore_db_from_csv():
+    if not os.path.exists(CSV_PATH):
+        print("⚠ CSV 백업 파일 없음 → 복구 스킵")
+        return
+
+    try:
+        df = pd.read_csv(CSV_PATH)
+
+        conn = sqlite3.connect(DB_PATH)
+        df.to_sql('crowd', conn, if_exists='append', index=False)
+        conn.close()
+        print(f"🔄 CSV → DB 복구 완료 ({len(df)}행 복구됨)")
+
+    except Exception as e:
+        print(f"❌ CSV 복구 중 오류 발생: {e}")
+
+
+# ------------------------------
+# DB 초기화
 # ------------------------------
 def init_db():
+    db_exists = os.path.exists(DB_PATH)
+
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute('''
@@ -24,10 +44,17 @@ def init_db():
     ''')
     conn.commit()
     conn.close()
-    print("✅ SQLite DB 초기화 완료")
+
+    # DB가 새로 만들어졌고 CSV가 있다면 복구
+    if not db_exists and os.path.exists(CSV_PATH):
+        print("📁 DB 없음 + CSV 존재 → DB 복구 시작")
+        restore_db_from_csv()
+    else:
+        print("✅ DB 초기화 완료")
+
 
 # ------------------------------
-# 2. 데이터 삽입 함수
+#  데이터 삽입
 # ------------------------------
 def insert_data(room, count):
     conn = sqlite3.connect(DB_PATH)
@@ -37,8 +64,9 @@ def insert_data(room, count):
     conn.commit()
     conn.close()
 
+
 # ------------------------------
-# 3. 최근 데이터 조회
+# 최근 데이터 조회
 # ------------------------------
 def get_recent_data(limit=20):
     conn = sqlite3.connect(DB_PATH)
@@ -48,56 +76,74 @@ def get_recent_data(limit=20):
     conn.close()
     return [{'room': r, 'count': c, 'time': t} for (r, c, t) in rows]
 
+
 # ------------------------------
-# 4. CSV 백업 함수
+# CSV 백업
 # ------------------------------
 def backup_csv():
-    conn = sqlite3.connect(DB_PATH)
-    df = pd.read_sql_query('SELECT * FROM crowd', conn)
-    df.to_csv(CSV_PATH, index=False)
-    conn.close()
-    print(f"💾 CSV 백업 완료 ({len(df)}행 저장)")
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        df = pd.read_sql_query('SELECT * FROM crowd', conn)
+        df.to_csv(CSV_PATH, index=False)
+        conn.close()
+        print(f"💾 CSV 백업 완료 ({len(df)}행 저장)")
+    except Exception as e:
+        print(f"❌ CSV 백업 오류: {e}")
+
 
 def backup_loop():
     while True:
         backup_csv()
         time.sleep(300)  # 5분마다 자동 백업
 
+
 # ------------------------------
-# 5. Flask 라우트
+# 라우트
 # ------------------------------
-#'/': 기본 주소, 단순히 서버 상태를 확인하는 테스트용 
 @app.route('/')
 def home():
-    return "📡 Flask + SQLite 서버 작동 중!"
+    return "📡 Flask + SQLite 서버 작동 중! (CSV 자동 복구 기능 포함)"
 
-#POST 요청이 들어오면 실행되는 함수
-@app.route('/upload', methods=['POST']) 
+
+@app.route('/upload', methods=['POST'])
 def upload():
     try:
-        content = request.json #클라이언트가 보낸 JSON데이터 python dict로 불러옴
+        content = request.json
+        room = content.get('room', 'unknown')
+        count = int(content.get('count', 0))
 
-        #유효성 검사와 기본 값 설정
-        room = content.get('room', 'unknown') #측정 장소
-        count = int(content.get('count',0)) #감지된 인원수
-        timestamp = time.strftime('%Y-%m-%d %H:%M:%S') #저장 시각
-
-        #감지된 데이터를 SQLite DB에 저장
         insert_data(room, count)
-        print(f"[DB저장] {room}: {count}명 ({timestamp})")
+        print(f"[DB저장] {room}: {count}명")
 
-        #클라이언트에게 JSON응답을 돌려줌
         return jsonify({'status': 'ok', 'message': f'{room} 인원 {count}명 저장됨'})
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 400
 
-#GET 요청이 오명 최근 데이터를 반환
+
 @app.route('/api/data', methods=['GET'])
 def api_data():
     return jsonify(get_recent_data())
 
+
 # ------------------------------
-# 6. 메인 실행
+# DB/CSV 초기화
+# ------------------------------
+@app.route('/reset', methods=['POST'])
+def reset_db():
+    try:
+        if os.path.exists(DB_PATH):
+            os.remove(DB_PATH)
+        if os.path.exists(CSV_PATH):
+            os.remove(CSV_PATH)
+        init_db()  # 새로 생성
+        return {"status": "ok", "message": "DB + CSV 초기화 완료"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+
+# ------------------------------
+# 메인 실행
 # ------------------------------
 if __name__ == '__main__':
     init_db()
