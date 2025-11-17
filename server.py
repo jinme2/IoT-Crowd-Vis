@@ -209,6 +209,19 @@ def reset_db():
         return {"status": "error", "message": str(e)}
 
 
+@app.route('/test_mysql')
+def test_mysql():
+    try:
+        conn = connect_mysql()
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1")
+        result = cursor.fetchone()
+        conn.close()
+        return {"status": "ok", "result": result}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
 # ======================================================
 # 🔥 7. 메인 실행
 # ======================================================
