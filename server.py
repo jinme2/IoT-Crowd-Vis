@@ -1,92 +1,154 @@
 from flask import Flask, request, jsonify
-import sqlite3, pandas as pd, time, threading, os
+import os
+import time
+import threading
+import pandas as pd
+import sqlite3
+import pymysql
 
 app = Flask(__name__)
 
-DB_PATH = 'crowd.db'
-CSV_PATH = 'crowd_backup.csv'
+# ======================================================
+# 🔥 1. 환경 기반 DB 모드 선택 (MySQL / SQLite 자동 전환)
+# ======================================================
 
-# ------------------------------
-# CSV → DB 복구 함수
-# ------------------------------
-def restore_db_from_csv():
-    if not os.path.exists(CSV_PATH):
-        print("⚠ CSV 백업 파일 없음 → 복구 스킵")
-        return
+USE_MYSQL = os.environ.get("MYSQLHOST") is not None  # Render면 자동 True
 
-    try:
-        df = pd.read_csv(CSV_PATH)
+if USE_MYSQL:
+    # Railway MySQL 사용
+    DB_CONFIG = {
+        "host": os.environ["MYSQLHOST"],
+        "port": int(os.environ["MYSQLPORT"]),
+        "user": os.environ["MYSQLUSER"],
+        "password": os.environ["MYSQLPASSWORD"],
+        "database": os.environ["MYSQLDATABASE"],
+        "charset": "utf8mb4",
+        "cursorclass": pymysql.cursors.DictCursor,
+    }
 
-        conn = sqlite3.connect(DB_PATH)
-        df.to_sql('crowd', conn, if_exists='append', index=False)
-        conn.close()
-        print(f"🔄 CSV → DB 복구 완료 ({len(df)}행 복구됨)")
+    def get_conn():
+        return pymysql.connect(**DB_CONFIG)
 
-    except Exception as e:
-        print(f"❌ CSV 복구 중 오류 발생: {e}")
+else:
+    # 로컬 SQLite + CSV 백업 사용
+    DB_PATH = 'crowd.db'
+    CSV_PATH = 'crowd_backup.csv'
+
+    def get_conn():
+        return sqlite3.connect(DB_PATH)
 
 
-# ------------------------------
-# DB 초기화
-# ------------------------------
+# ======================================================
+# 🔥 2. DB 초기화
+# ======================================================
+
 def init_db():
-    db_exists = os.path.exists(DB_PATH)
+    conn = get_conn()
+    cur = conn.cursor()
 
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS crowd(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            room TEXT,
-            count INTEGER,
-            time TEXT
-        )
-    ''')
-    conn.commit()
-    conn.close()
+    if USE_MYSQL:
+        # MySQL 테이블 생성
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS crowd (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                room VARCHAR(50),
+                count INT,
+                time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        print("✅ MySQL DB 준비 완료")
 
-    # DB가 새로 만들어졌고 CSV가 있다면 복구
-    if not db_exists and os.path.exists(CSV_PATH):
-        print("📁 DB 없음 + CSV 존재 → DB 복구 시작")
-        restore_db_from_csv()
     else:
-        print("✅ DB 초기화 완료")
+        # SQLite 테이블 생성
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS crowd(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                room TEXT,
+                count INTEGER,
+                time TEXT
+            )
+        """)
+        print("✅ SQLite DB 초기화 완료")
 
+        # CSV → DB 복구 (SQLite일 때만)
+        if os.path.exists(DB_PATH) and os.path.exists(CSV_PATH):
+            try:
+                df = pd.read_csv(CSV_PATH)
+                df.to_sql('crowd', conn, if_exists='append', index=False)
+                print(f"🔄 CSV → DB 복구 완료 ({len(df)}행)")
+            except Exception as e:
+                print(f"❌ CSV 복구 중 오류: {e}")
 
-# ------------------------------
-#  데이터 삽입
-# ------------------------------
-def insert_data(room, count):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute('INSERT INTO crowd (room, count, time) VALUES (?, ?, ?)',
-              (room, count, time.strftime('%Y-%m-%d %H:%M:%S')))
     conn.commit()
     conn.close()
 
 
-# ------------------------------
-# 최근 데이터 조회
-# ------------------------------
-def get_recent_data(limit=20):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute('SELECT room, count, time FROM crowd ORDER BY id DESC LIMIT ?', (limit,))
-    rows = c.fetchall()
+# ======================================================
+# 🔥 3. 데이터 삽입
+# ======================================================
+
+def insert_data(room, count):
+    conn = get_conn()
+    cur = conn.cursor()
+
+    now_time = time.strftime('%Y-%m-%d %H:%M:%S')
+
+    if USE_MYSQL:
+        cur.execute(
+            "INSERT INTO crowd (room, count, time) VALUES (%s, %s, %s)",
+            (room, count, now_time)
+        )
+    else:
+        cur.execute(
+            "INSERT INTO crowd (room, count, time) VALUES (?, ?, ?)",
+            (room, count, now_time)
+        )
+
+    conn.commit()
     conn.close()
-    return [{'room': r, 'count': c, 'time': t} for (r, c, t) in rows]
 
 
-# ------------------------------
-# CSV 백업
-# ------------------------------
+# ======================================================
+# 🔥 4. 최근 데이터 조회
+# ======================================================
+
+def get_recent_data(limit=20):
+    conn = get_conn()
+    cur = conn.cursor()
+
+    if USE_MYSQL:
+        cur.execute(
+            "SELECT room, count, time FROM crowd ORDER BY id DESC LIMIT %s",
+            (limit,)
+        )
+    else:
+        cur.execute(
+            "SELECT room, count, time FROM crowd ORDER BY id DESC LIMIT ?",
+            (limit,)
+        )
+
+    rows = cur.fetchall()
+    conn.close()
+
+    if USE_MYSQL:
+        return rows  # MySQL은 dict로 반환됨
+    else:
+        return [{'room': r, 'count': c, 'time': t} for (r, c, t) in rows]
+
+
+# ======================================================
+# 🔥 5. CSV 백업 (SQLite 전용)
+# ======================================================
+
 def backup_csv():
+    if USE_MYSQL:
+        return  # Render에서는 CSV 의미 없음
+
     try:
-        conn = sqlite3.connect(DB_PATH)
-        df = pd.read_sql_query('SELECT * FROM crowd', conn)
-        df.to_csv(CSV_PATH, index=False)
-        conn.close()
-        print(f"💾 CSV 백업 완료 ({len(df)}행 저장)")
+        conn = get_conn()
+        df = pd.read_sql_query("SELECT * FROM crowd", conn)
+        df.to_csv("crowd_backup.csv", index=False)
+        print(f"💾 CSV 백업 완료 ({len(df)}행)")
     except Exception as e:
         print(f"❌ CSV 백업 오류: {e}")
 
@@ -94,21 +156,25 @@ def backup_csv():
 def backup_loop():
     while True:
         backup_csv()
-        time.sleep(300)  # 5분마다 자동 백업
+        time.sleep(300)
 
 
-# ------------------------------
-# 라우트
-# ------------------------------
+# ======================================================
+# 🔥 6. API 라우트
+# ======================================================
+
 @app.route('/')
 def home():
-    return "📡 Flask + SQLite 서버 작동 중! (CSV 자동 복구 기능 포함)"
+    if USE_MYSQL:
+        return "📡 Flask + Railway MySQL 서버 작동 중!"
+    else:
+        return "📡 Flask + SQLite + CSV 백업 서버 작동 중!"
 
 
 @app.route('/upload', methods=['POST'])
 def upload():
     try:
-        content = request.json
+        content = request.json or {}
         room = content.get('room', 'unknown')
         count = int(content.get('count', 0))
 
@@ -125,27 +191,32 @@ def api_data():
     return jsonify(get_recent_data())
 
 
-# ------------------------------
-# DB/CSV 초기화
-# ------------------------------
+# SQLite 전용 초기화
 @app.route('/reset', methods=['POST'])
 def reset_db():
+    if USE_MYSQL:
+        return {"status": "error", "message": "MySQL 모드에서는 reset 불가"}
+
     try:
-        if os.path.exists(DB_PATH):
-            os.remove(DB_PATH)
-        if os.path.exists(CSV_PATH):
-            os.remove(CSV_PATH)
-        init_db()  # 새로 생성
-        return {"status": "ok", "message": "DB + CSV 초기화 완료"}
+        if os.path.exists('crowd.db'):
+            os.remove('crowd.db')
+        if os.path.exists('crowd_backup.csv'):
+            os.remove('crowd_backup.csv')
+
+        init_db()
+        return {"status": "ok", "message": "SQLite DB + CSV 초기화 완료"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
 
+# ======================================================
+# 🔥 7. 메인 실행
+# ======================================================
 
-# ------------------------------
-# 메인 실행
-# ------------------------------
 if __name__ == '__main__':
     init_db()
-    threading.Thread(target=backup_loop, daemon=True).start()
+
+    if not USE_MYSQL:
+        threading.Thread(target=backup_loop, daemon=True).start()
+
     app.run(host='0.0.0.0', port=5000)
