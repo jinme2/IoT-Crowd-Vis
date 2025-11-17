@@ -5,6 +5,7 @@ import threading
 import pandas as pd
 import sqlite3
 import pymysql
+import urllib.parse
 
 app = Flask(__name__)
 
@@ -12,10 +13,10 @@ app = Flask(__name__)
 # 🔥 1. 환경 기반 DB 모드 선택 (MySQL / SQLite 자동 전환)
 # ======================================================
 
-USE_MYSQL = os.environ.get("MYSQLHOST") is not None  # Render면 자동 True
+USE_MYSQL = os.environ.get("MYSQLHOST") is not None  # Render/Railway이면 True
 
 if USE_MYSQL:
-    # Railway MySQL 사용
+    # Railway MySQL 환경 변수 기반 설정
     DB_CONFIG = {
         "host": os.environ["MYSQLHOST"],
         "port": int(os.environ["MYSQLPORT"]),
@@ -30,12 +31,46 @@ if USE_MYSQL:
         return pymysql.connect(**DB_CONFIG)
 
 else:
-    # 로컬 SQLite + CSV 백업 사용
+    # 로컬 SQLite 설정
     DB_PATH = 'crowd.db'
     CSV_PATH = 'crowd_backup.csv'
 
     def get_conn():
         return sqlite3.connect(DB_PATH)
+
+
+# ======================================================
+# 🔥 1-2. MySQL 직접 연결 함수 (/test_mysql 전용)
+# ======================================================
+
+def connect_mysql():
+    try:
+        db_url = os.getenv("MYSQL_URL")  # Railway 제공 URL (mysql:// 형태)
+        if db_url:
+            parsed = urllib.parse.urlparse(db_url)
+
+            host = parsed.hostname
+            port = parsed.port
+            user = parsed.username
+            password = parsed.password
+            database = parsed.path.lstrip('/')
+
+            return pymysql.connect(
+                host=host,
+                port=port,
+                user=user,
+                password=password,
+                db=database,
+                charset="utf8mb4",
+                cursorclass=pymysql.cursors.DictCursor
+            )
+        else:
+            # MYSQL_URL 없으면 기본 DB_CONFIG 사용
+            return pymysql.connect(**DB_CONFIG)
+
+    except Exception as e:
+        print("❌ MySQL 연결 실패:", e)
+        return None
 
 
 # ======================================================
@@ -70,14 +105,14 @@ def init_db():
         """)
         print("✅ SQLite DB 초기화 완료")
 
-        # CSV → DB 복구 (SQLite일 때만)
+        # CSV → SQLite 복구
         if os.path.exists(DB_PATH) and os.path.exists(CSV_PATH):
             try:
                 df = pd.read_csv(CSV_PATH)
                 df.to_sql('crowd', conn, if_exists='append', index=False)
                 print(f"🔄 CSV → DB 복구 완료 ({len(df)}행)")
             except Exception as e:
-                print(f"❌ CSV 복구 중 오류: {e}")
+                print(f"❌ CSV 복구 중 오류:", e)
 
     conn.commit()
     conn.close()
@@ -117,32 +152,26 @@ def get_recent_data(limit=20):
     cur = conn.cursor()
 
     if USE_MYSQL:
-        cur.execute(
-            "SELECT room, count, time FROM crowd ORDER BY id DESC LIMIT %s",
-            (limit,)
-        )
+        cur.execute("SELECT room, count, time FROM crowd ORDER BY id DESC LIMIT %s", (limit,))
     else:
-        cur.execute(
-            "SELECT room, count, time FROM crowd ORDER BY id DESC LIMIT ?",
-            (limit,)
-        )
+        cur.execute("SELECT room, count, time FROM crowd ORDER BY id DESC LIMIT ?", (limit,))
 
     rows = cur.fetchall()
     conn.close()
 
     if USE_MYSQL:
-        return rows  # MySQL은 dict로 반환됨
+        return rows  # MySQL은 dict 그대로 반환
     else:
         return [{'room': r, 'count': c, 'time': t} for (r, c, t) in rows]
 
 
 # ======================================================
-# 🔥 5. CSV 백업 (SQLite 전용)
+# 🔥 5. CSV 백업 (SQLite Only)
 # ======================================================
 
 def backup_csv():
     if USE_MYSQL:
-        return  # Render에서는 CSV 의미 없음
+        return
 
     try:
         conn = get_conn()
@@ -150,13 +179,13 @@ def backup_csv():
         df.to_csv("crowd_backup.csv", index=False)
         print(f"💾 CSV 백업 완료 ({len(df)}행)")
     except Exception as e:
-        print(f"❌ CSV 백업 오류: {e}")
+        print(f"❌ CSV 백업 오류:", e)
 
 
 def backup_loop():
     while True:
         backup_csv()
-        time.sleep(300)
+        time.sleep(300)  # 5분마다 백업
 
 
 # ======================================================
@@ -186,12 +215,11 @@ def upload():
         return jsonify({'status': 'error', 'message': str(e)}), 400
 
 
-@app.route('/api/data', methods=['GET'])
+@app.route('/api/data')
 def api_data():
     return jsonify(get_recent_data())
 
 
-# SQLite 전용 초기화
 @app.route('/reset', methods=['POST'])
 def reset_db():
     if USE_MYSQL:
@@ -212,12 +240,17 @@ def reset_db():
 @app.route('/test_mysql')
 def test_mysql():
     try:
+        if not USE_MYSQL:
+            return {"status": "error", "message": "현재 SQLite 모드임"}
+
         conn = connect_mysql()
         cursor = conn.cursor()
         cursor.execute("SELECT 1")
         result = cursor.fetchone()
         conn.close()
+
         return {"status": "ok", "result": result}
+
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
