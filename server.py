@@ -25,23 +25,23 @@ def connect_mysql():
         return None
 
 
-# # ======================================
-# # 📌 CSV 자동 백업 함수
-# # ======================================
-# def save_csv(camera_id, people_count, timestamp):
-#     csv_file = "backup.csv"
-#     file_exists = os.path.isfile(csv_file)
+# ======================================
+# 📌 CSV 자동 백업 함수
+# ======================================
+def save_csv(camera_id, people_count, timestamp):
+    csv_file = "backup.csv"
+    file_exists = os.path.isfile(csv_file)
 
-#     # CSV 파일 없으면 헤더 추가하여 생성
-#     if not file_exists:
-#         with open(csv_file, "w", newline="", encoding="utf-8") as f:
-#             writer = csv.writer(f)
-#             writer.writerow(["camera_id", "people_count", "timestamp"])
+    # CSV 파일 없으면 헤더 추가하여 생성
+    if not file_exists:
+        with open(csv_file, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["camera_id", "people_count", "timestamp"])
 
-#     # 새 데이터 한 줄 append
-#     with open(csv_file, "a", newline="", encoding="utf-8") as f:
-#         writer = csv.writer(f)
-#         writer.writerow([camera_id, people_count, timestamp])
+    # 새 데이터 한 줄 append
+    with open(csv_file, "a", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow([camera_id, people_count, timestamp])
 
 
 # ======================================
@@ -57,7 +57,7 @@ def upload():
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         # 1) CSV 백업
-        save_csv(camera_id, people_count, timestamp)
+        #save_csv(camera_id, people_count, timestamp)
 
         # 2) MySQL 저장
         conn = connect_mysql()
