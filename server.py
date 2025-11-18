@@ -9,6 +9,7 @@ import urllib.parse
 
 app = Flask(__name__)
 
+
 # ======================================================
 # 🔥 1. 환경 기반 DB 모드 선택 (MySQL / SQLite 자동 전환)
 # ======================================================
@@ -240,19 +241,15 @@ def reset_db():
 @app.route('/test_mysql')
 def test_mysql():
     try:
-        if not USE_MYSQL:
-            return {"status": "error", "message": "현재 SQLite 모드임"}
-
-        conn = connect_mysql()
+        conn = get_conn()
         cursor = conn.cursor()
         cursor.execute("SELECT 1")
         result = cursor.fetchone()
         conn.close()
-
         return {"status": "ok", "result": result}
-
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
 
 
 # ======================================================
