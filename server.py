@@ -28,7 +28,7 @@ def connect_mysql():
 # ======================================
 # 📌 CSV 자동 백업 함수
 # ======================================
-def save_csv(camera_id, people_count, timestamp):
+def save_csv(camera_id, room, people_count, timestamp):
     csv_file = "backup.csv"
     file_exists = os.path.isfile(csv_file)
 
@@ -36,12 +36,12 @@ def save_csv(camera_id, people_count, timestamp):
     if not file_exists:
         with open(csv_file, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
-            writer.writerow(["camera_id", "people_count", "timestamp"])
+            writer.writerow(["camera_id", "room", "people_count", "timestamp"])
 
     # 새 데이터 한 줄 append
     with open(csv_file, "a", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow([camera_id, people_count, timestamp])
+        writer.writerow([camera_id, room, people_count, timestamp])
 
 
 # ======================================
@@ -53,23 +53,23 @@ def upload():
         data = request.get_json()
 
         camera_id = data.get("camera_id")
+        room = data.get("room")
         people_count = data.get("people_count")
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        # 1) CSV 백업
-        #save_csv(camera_id, people_count, timestamp)
+        # CSV 백업 필요하면 사용
+        # save_csv(camera_id, room, people_count, timestamp)
 
-        # 2) MySQL 저장
         conn = connect_mysql()
         if conn is None:
             return jsonify({"status": "error", "message": "DB connect error"}), 500
 
         with conn.cursor() as cur:
             sql = """
-                INSERT INTO people_log (camera_id, people_count, timestamp)
-                VALUES (%s, %s, %s)
+                INSERT INTO people_log (camera_id, room, people_count, timestamp)
+                VALUES (%s, %s, %s, %s)
             """
-            cur.execute(sql, (camera_id, people_count, timestamp))
+            cur.execute(sql, (camera_id, room, people_count, timestamp))
             conn.commit()
 
         return jsonify({
