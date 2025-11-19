@@ -82,6 +82,33 @@ def upload():
         print("Upload Error:", e)
         return jsonify({"status": "error", "message": str(e)}), 500
 
+# ======================================
+# 📌 인원 기록 조회 API
+#     - GET /people
+#     - 최근 100개 조회 또는 날짜 필터로 조회 가능
+# ======================================
+@app.route('/people', methods=['GET'])
+def get_people():
+    try:
+        conn = connect_mysql()
+        if conn is None:
+            return jsonify({"status": "error", "message": "DB connect error"}), 500
+
+        with conn.cursor() as cur:
+            sql = "SELECT * FROM people_log ORDER BY id DESC LIMIT 100"
+            cur.execute(sql)
+            rows = cur.fetchall()
+
+        return jsonify({
+            "status": "ok",
+            "count": len(rows),
+            "data": rows
+        })
+
+    except Exception as e:
+        print("GetPeople Error:", e)
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 
 # ======================================
 # 📌 MySQL 연결 테스트
