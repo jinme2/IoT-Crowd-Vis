@@ -6,7 +6,17 @@ from datetime import datetime
 from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app)
+#CORS(app)
+
+CORS(app, resources={
+    r"/*": {
+        "origins": [
+            "http://localhost:3000",
+            "https://iot-11project.onrender.com/"
+        ]
+    }
+})
+
 
 # ======================================
 # 📌 MySQL 연결
