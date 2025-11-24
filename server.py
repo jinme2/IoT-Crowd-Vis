@@ -105,7 +105,7 @@ def upload():
 @app.route('/people', methods=['GET'])
 def get_people():
     try:
-        limit = int(request.args.get('limit', 100))  # 기본 100개
+        limit = int(request.args.get('limit', 5))  # 기본 5개
 
         conn = connect_mysql()
         if conn is None:
