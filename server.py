@@ -12,7 +12,7 @@ CORS(app, resources={
     r"/*": {
         "origins": [
             "http://localhost:3000",
-            "https://iot-11project.onrender.com/"
+            "https://iot-11project.onrender.com/itcampus/"
         ]
     }
 })
