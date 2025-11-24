@@ -68,7 +68,7 @@ def upload():
         camera_id = data.get("camera_id")
         room = data.get("room")
         people_count = data.get("people_count")
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        timestamp = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
 
         # CSV 백업 필요하면 사용
         # save_csv(camera_id, room, people_count, timestamp)
