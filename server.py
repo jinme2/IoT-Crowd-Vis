@@ -100,18 +100,20 @@ def upload():
 # ======================================
 # 📌 인원 기록 조회 API
 #     - GET /people
-#     - 최근 100개 조회 또는 날짜 필터로 조회 가능
+#     - 요청한 개수의 데이터 조회 또는 날짜 필터로 조회 가능 (예: /people?limit=5)
 # ======================================
 @app.route('/people', methods=['GET'])
 def get_people():
     try:
+        limit = int(request.args.get('limit', 100))  # 기본 100개
+
         conn = connect_mysql()
         if conn is None:
             return jsonify({"status": "error", "message": "DB connect error"}), 500
 
         with conn.cursor() as cur:
-            sql = "SELECT * FROM people_log ORDER BY id DESC LIMIT 100"
-            cur.execute(sql)
+            sql = "SELECT * FROM people_log ORDER BY id DESC LIMIT %s"
+            cur.execute(sql, (limit,))
             rows = cur.fetchall()
 
         return jsonify({
@@ -124,6 +126,55 @@ def get_people():
         print("GetPeople Error:", e)
         return jsonify({"status": "error", "message": str(e)}), 500
 
+
+# ======================================
+# 📌 날짜 기반 조회 API
+#     - GET /people/date?date=2025-11-24
+#     - 해당 날짜의 00:00~현재시간(KST)까지 데이터 조회
+# ======================================
+@app.route('/people/date', methods=['GET'])
+def get_people_by_date():
+    try:
+        date_str = request.args.get('date')  # YYYY-MM-DD 필수
+        
+        if not date_str:
+            return jsonify({"status": "error", "message": "date 파라미터가 필요합니다. 예: /people/date?date=2025-11-24"}), 400
+
+        # 날짜 파싱
+        date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+
+        # 해당 날짜의 00:00 (KST)
+        start_dt = KST.localize(datetime.combine(date_obj, time.min))
+
+        # 현재 시간 (KST)
+        end_dt = datetime.now(KST)
+
+        conn = connect_mysql()
+        if conn is None:
+            return jsonify({"status": "error", "message": "DB connect error"}), 500
+
+        with conn.cursor() as cur:
+            sql = """
+                SELECT * FROM people_log
+                WHERE timestamp BETWEEN %s AND %s
+                ORDER BY id DESC
+            """
+            cur.execute(sql, (start_dt, end_dt))
+            rows = cur.fetchall()
+
+        return jsonify({
+            "status": "ok",
+            "count": len(rows),
+            "data": rows,
+            "range": {
+                "start": start_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                "end": end_dt.strftime("%Y-%m-%d %H:%M:%S")
+            }
+        })
+
+    except Exception as e:
+        print("GetPeopleByDate Error:", e)
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 # ======================================
 # 📌 MySQL 연결 테스트
