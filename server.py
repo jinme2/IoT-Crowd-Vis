@@ -4,6 +4,8 @@ import csv
 import pymysql
 from datetime import datetime
 from flask_cors import CORS
+import pytz
+KST = pytz.timezone("Asia/Seoul")
 
 app = Flask(__name__)
 #CORS(app)
