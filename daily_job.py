@@ -64,7 +64,7 @@ def validate_csv(filepath):
         return False
         
     df = pd.read_csv(filepath)
-    if len(df) < 10:  # 하루 최소 10개 이상 있어야 신뢰
+    if len(df) < 10:
         return False
     return True
 
@@ -83,22 +83,7 @@ def merge_all_data(daily_path):
 
     df_merge.to_csv(all_path, index=False, encoding="utf-8-sig")
     print("누적 데이터 업데이트 완료.")
-
     return all_path
-
-
-# 4) MySQL 데이터 삭제 (오늘만 남기기)
-def cleanup_mysql():
-    conn = connect_mysql()
-    if not conn:
-        print("DB 연결 실패 (삭제 중단)")
-        return
-
-    with conn.cursor() as cur:
-        sql = "DELETE FROM people_log WHERE DATE(timestamp) < CURDATE();"
-        cur.execute(sql)
-        conn.commit()
-        print("DB 정리 완료 (오늘 이전 데이터 삭제)")
 
 
 # 5) 분석 – 시간별 평균
@@ -114,7 +99,7 @@ def weekday_profile(df):
     return df.groupby("weekday")["people_count"].mean().to_dict()
 
 
-# 7) 예측 모델 학습 + 다음주 같은 시간대 예측
+# 7) 예측
 from sklearn.linear_model import LinearRegression
 
 def predict_next_week(df):
@@ -135,8 +120,19 @@ def predict_next_week(df):
     weekday = datetime.now(KST).weekday()
 
     pred = model.predict([[future_minute, hour, weekday]])[0]
-
     return float(pred)
+
+
+# ⭐ 여기 clear_mysql() 추가됨
+def clear_mysql():
+    conn = connect_mysql()
+    if conn is None:
+        print("MySQL 연결 실패 → 데이터 삭제 건너뜀")
+        return
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM people_log")
+        conn.commit()
+    print("MySQL 데이터 전체 삭제 완료")
 
 
 # 메인 실행 함수
@@ -145,12 +141,10 @@ def run_daily_job():
 
     daily_file = export_daily_csv()
     if not validate_csv(daily_file):
-        print("CSV 검증 실패. MySQL 삭제 중단.")
+        print("CSV 검증 실패 → MySQL 삭제 중단")
         return
 
     all_csv = merge_all_data(daily_file)
-
-    cleanup_mysql()
 
     df = pd.read_csv(all_csv)
     hour_avg = hourly_avg(df)
@@ -173,3 +167,4 @@ def run_daily_job():
 
 if __name__ == "__main__":
     run_daily_job()
+    clear_mysql()  # ✔ 백업 및 분석 완료 후 전체 삭제
