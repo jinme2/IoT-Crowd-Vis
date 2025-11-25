@@ -4,6 +4,7 @@ import csv
 import pymysql
 from datetime import datetime
 from flask_cors import CORS
+from flask import send_file
 import pytz
 KST = pytz.timezone("Asia/Seoul")
 
@@ -174,6 +175,62 @@ def get_people_by_date():
 
     except Exception as e:
         print("GetPeopleByDate Error:", e)
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+# ======================================
+# 📌 DB → CSV 백업 파일 다운로드 API
+#     - GET /export_csv
+#     - MySQL 전체 로그를 CSV로 파일 생성 후 다운로드
+# ======================================
+
+@app.route('/export_csv_simple', methods=['GET'])
+def export_csv_simple():
+    try:
+        conn = connect_mysql()
+        if conn is None:
+            return jsonify({"status": "error", "message": "DB connect error"}), 500
+
+        with conn.cursor() as cur:
+            sql = "SELECT timestamp, people_count FROM people_log ORDER BY timestamp ASC"
+            cur.execute(sql)
+            rows = cur.fetchall()
+
+        if not rows:
+            return jsonify({"status": "error", "message": "데이터가 없습니다."}), 404
+
+        # 파일명
+        filename = f"people_simple_{datetime.now(KST).strftime('%Y%m%d_%H%M%S')}.csv"
+
+        # CSV 생성
+        with open(filename, "w", newline="", encoding="utf-8-sig") as f:
+            writer = csv.writer(f)
+            writer.writerow(["date", "time", "people_count"])  # 헤더
+
+            for row in rows:
+                ts = row["timestamp"]
+
+                # timestamp를 datetime으로 변환
+                if isinstance(ts, str):
+                    ts = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
+
+                ts_kst = ts.astimezone(KST)
+
+                date_str = ts_kst.strftime("%Y-%m-%d")
+                time_str = ts_kst.strftime("%H:%M:%S")
+                count = row["people_count"]
+
+                writer.writerow([date_str, time_str, count])
+
+        # 파일 다운로드
+        return send_file(
+            filename,
+            mimetype="text/csv",
+            as_attachment=True,
+            download_name=filename
+        )
+
+    except Exception as e:
+        print("ExportCSV Simple Error:", e)
         return jsonify({"status": "error", "message": str(e)}), 500
 
 # ======================================
