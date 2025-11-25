@@ -39,4 +39,4 @@ jobs:
           git add .
           git commit -m "Daily update" || echo "No changes"
           git pull origin main --rebase
-          git push
+          git push origin main
