@@ -38,4 +38,5 @@ jobs:
           git config --local user.name "GitHub Actions"
           git add .
           git commit -m "Daily update" || echo "No changes"
+          git pull origin main --rebase
           git push
