@@ -2,10 +2,11 @@ from flask import Flask, request, jsonify
 import os
 import csv
 import pymysql
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask_cors import CORS
 from flask import send_file
 import pytz
+import pandas as pd
 KST = pytz.timezone("Asia/Seoul")
 
 app = Flask(__name__)
@@ -232,6 +233,134 @@ def export_csv_simple():
     except Exception as e:
         print("ExportCSV Simple Error:", e)
         return jsonify({"status": "error", "message": str(e)}), 500
+
+# ======================================
+# 📌 시간대별 평균 (0~23시)
+#     - GET /analytics/hourly
+# ======================================
+@app.route('/analytics/hourly', methods=['GET'])
+def get_hourly_avg():
+    try:
+        conn = connect_mysql()
+        if conn is None:
+            return jsonify({"status": "error", "message": "DB connect error"}), 500
+        
+        with conn.cursor() as cur:
+            sql = "SELECT timestamp, people_count FROM people_log ORDER BY timestamp ASC"
+            cur.execute(sql)
+            rows = cur.fetchall()
+        
+        if not rows:
+            return jsonify({"status": "error", "message": "데이터 없음"}), 404
+        
+        df = pd.DataFrame(rows)
+        df["timestamp"] = pd.to_datetime(df["timestamp"])
+        df["hour"] = df["timestamp"].dt.hour
+        
+        # 시간별 평균
+        hourly_avg = df.groupby("hour")["people_count"].mean().to_dict()
+        
+        return jsonify({
+            "status": "ok",
+            "hourly_avg": hourly_avg
+        })
+    
+    except Exception as e:
+        print("Hourly Avg Error:", e)
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# ======================================
+# 📌 요일별 평균 (월=0 ~ 일=6)
+#     - GET /analytics/weekday
+# ======================================
+@app.route('/analytics/weekday', methods=['GET'])
+def get_weekday_avg():
+    try:
+        conn = connect_mysql()
+        if conn is None:
+            return jsonify({"status": "error", "message": "DB connect error"}), 500
+        
+        with conn.cursor() as cur:
+            sql = "SELECT timestamp, people_count FROM people_log ORDER BY timestamp ASC"
+            cur.execute(sql)
+            rows = cur.fetchall()
+        
+        if not rows:
+            return jsonify({"status": "error", "message": "데이터 없음"}), 404
+        
+        df = pd.DataFrame(rows)
+        df["timestamp"] = pd.to_datetime(df["timestamp"])
+        df["weekday"] = df["timestamp"].dt.weekday
+        
+        weekday_avg = df.groupby("weekday")["people_count"].mean().to_dict()
+        
+        return jsonify({
+            "status": "ok",
+            "weekday_avg": weekday_avg
+        })
+    
+    except Exception as e:
+        print("Weekday Avg Error:", e)
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# ======================================
+# 📌 다음주 같은 시간대 예측
+#     - GET /analytics/predict
+# ======================================
+from sklearn.linear_model import LinearRegression
+import numpy as np
+
+@app.route('/analytics/predict', methods=['GET'])
+def get_prediction():
+    try:
+        conn = connect_mysql()
+        if conn is None:
+            return jsonify({"status": "error", "message": "DB connect error"}), 500
+        
+        with conn.cursor() as cur:
+            sql = "SELECT timestamp, people_count FROM people_log ORDER BY timestamp ASC"
+            cur.execute(sql)
+            rows = cur.fetchall()
+        
+        if not rows or len(rows) < 20:
+            return jsonify({"status": "error", "message": "학습 데이터 부족"}), 400
+        
+        df = pd.DataFrame(rows)
+        df["timestamp"] = pd.to_datetime(df["timestamp"])
+        
+        # 학습용 feature
+        df["minute"] = df["timestamp"].astype(np.int64) // 10**9
+        df["hour"] = df["timestamp"].dt.hour
+        df["weekday"] = df["timestamp"].dt.weekday
+        
+        X = df[["minute", "hour", "weekday"]]
+        y = df["people_count"]
+        
+        model = LinearRegression()
+        model.fit(X, y)
+        
+        # 미래 7일 뒤
+        future = datetime.now(KST) + timedelta(days=7)
+        future_data = [
+            int(future.timestamp()),
+            future.hour,
+            future.weekday()
+        ]
+        
+        pred = float(model.predict([future_data])[0])
+        
+        return jsonify({
+            "status": "ok",
+            "predict_next_week": pred,
+            "future_time": future.strftime("%Y-%m-%d %H:%M:%S")
+        })
+    
+    except Exception as e:
+        print("Prediction Error:", e)
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 
 # ======================================
 # 📌 MySQL 연결 테스트
