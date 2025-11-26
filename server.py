@@ -1,16 +1,17 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 import os
 import csv
 import pymysql
 from datetime import datetime, time, timedelta
 from flask_cors import CORS
-from flask import send_file
 import pytz
 import pandas as pd
+import numpy as np
+from sklearn.linear_model import LinearRegression
+
 KST = pytz.timezone("Asia/Seoul")
 
 app = Flask(__name__)
-#CORS(app)
 
 CORS(app, resources={
     r"/*": {
@@ -49,20 +50,18 @@ def save_csv(camera_id, room, people_count, timestamp):
     csv_file = "backup.csv"
     file_exists = os.path.isfile(csv_file)
 
-    # CSV 파일 없으면 헤더 추가하여 생성
     if not file_exists:
         with open(csv_file, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             writer.writerow(["camera_id", "room", "people_count", "timestamp"])
 
-    # 새 데이터 한 줄 append
     with open(csv_file, "a", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow([camera_id, room, people_count, timestamp])
 
 
 # ======================================
-# 📌 업로드 API (MySQL + CSV 동시 저장)
+# 📌 업로드 API
 # ======================================
 @app.route('/upload', methods=['POST'])
 def upload():
@@ -73,9 +72,6 @@ def upload():
         room = data.get("room")
         people_count = data.get("people_count")
         timestamp = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
-
-        # CSV 백업 필요하면 사용
-        # save_csv(camera_id, room, people_count, timestamp)
 
         conn = connect_mysql()
         if conn is None:
@@ -91,7 +87,7 @@ def upload():
 
         return jsonify({
             "status": "ok",
-            "message": "Saved to MySQL + CSV",
+            "message": "Saved to MySQL",
             "received": data
         })
 
@@ -99,15 +95,14 @@ def upload():
         print("Upload Error:", e)
         return jsonify({"status": "error", "message": str(e)}), 500
 
+
 # ======================================
-# 📌 인원 기록 조회 API
-#     - GET /people
-#     - 요청한 개수의 데이터 조회 또는 날짜 필터로 조회 가능 (예: /people?limit=5)
+# 📌 최근 데이터 조회
 # ======================================
 @app.route('/people', methods=['GET'])
 def get_people():
     try:
-        limit = int(request.args.get('limit', 5))  # 기본 5개
+        limit = int(request.args.get('limit', 5))
 
         conn = connect_mysql()
         if conn is None:
@@ -118,11 +113,7 @@ def get_people():
             cur.execute(sql, (limit,))
             rows = cur.fetchall()
 
-        return jsonify({
-            "status": "ok",
-            "count": len(rows),
-            "data": rows
-        })
+        return jsonify({"status": "ok", "count": len(rows), "data": rows})
 
     except Exception as e:
         print("GetPeople Error:", e)
@@ -130,25 +121,21 @@ def get_people():
 
 
 # ======================================
-# 📌 날짜 기반 조회 API
-#     - GET /people/date?date=2025-11-24
-#     - 해당 날짜의 00:00~현재시간(KST)까지 데이터 조회
+# 📌 날짜 기반 조회
 # ======================================
 @app.route('/people/date', methods=['GET'])
 def get_people_by_date():
     try:
-        date_str = request.args.get('date')  # YYYY-MM-DD 필수
-        
+        date_str = request.args.get('date')
+
         if not date_str:
-            return jsonify({"status": "error", "message": "date 파라미터가 필요합니다. 예: /people/date?date=2025-11-24"}), 400
+            return jsonify({
+                "status": "error",
+                "message": "date 파라미터 필요 (/people/date?date=YYYY-MM-DD)"
+            }), 400
 
-        # 날짜 파싱
         date_obj = datetime.strptime(date_str, "%Y-%m-%d")
-
-        # 해당 날짜의 00:00 (KST)
         start_dt = KST.localize(datetime.combine(date_obj, time.min))
-
-        # 현재 시간 (KST)
         end_dt = datetime.now(KST)
 
         conn = connect_mysql()
@@ -178,12 +165,10 @@ def get_people_by_date():
         print("GetPeopleByDate Error:", e)
         return jsonify({"status": "error", "message": str(e)}), 500
 
-# ======================================
-# 📌 DB → CSV 백업 파일 다운로드 API
-#     - GET /export_csv
-#     - MySQL 전체 로그를 CSV로 파일 생성 후 다운로드
-# ======================================
 
+# ======================================
+# 📌 간단 CSV 다운로드
+# ======================================
 @app.route('/export_csv_simple', methods=['GET'])
 def export_csv_simple():
     try:
@@ -192,173 +177,130 @@ def export_csv_simple():
             return jsonify({"status": "error", "message": "DB connect error"}), 500
 
         with conn.cursor() as cur:
-            sql = "SELECT timestamp, people_count FROM people_log ORDER BY timestamp ASC"
-            cur.execute(sql)
+            cur.execute("SELECT timestamp, people_count FROM people_log ORDER BY timestamp ASC")
             rows = cur.fetchall()
 
         if not rows:
-            return jsonify({"status": "error", "message": "데이터가 없습니다."}), 404
+            return jsonify({"status": "error", "message": "데이터 없음"}), 404
 
-        # 파일명
         filename = f"people_simple_{datetime.now(KST).strftime('%Y%m%d_%H%M%S')}.csv"
 
-        # CSV 생성
         with open(filename, "w", newline="", encoding="utf-8-sig") as f:
             writer = csv.writer(f)
-            writer.writerow(["date", "time", "people_count"])  # 헤더
+            writer.writerow(["date", "time", "people_count"])
 
             for row in rows:
-                ts = row["timestamp"]
+                ts = pd.to_datetime(row["timestamp"]).tz_localize("UTC").tz_convert(KST)
+                writer.writerow([ts.strftime("%Y-%m-%d"), ts.strftime("%H:%M:%S"), row["people_count"]])
 
-                # timestamp를 datetime으로 변환
-                if isinstance(ts, str):
-                    ts = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
-
-                ts_kst = ts.astimezone(KST)
-
-                date_str = ts_kst.strftime("%Y-%m-%d")
-                time_str = ts_kst.strftime("%H:%M:%S")
-                count = row["people_count"]
-
-                writer.writerow([date_str, time_str, count])
-
-        # 파일 다운로드
-        return send_file(
-            filename,
-            mimetype="text/csv",
-            as_attachment=True,
-            download_name=filename
-        )
+        return send_file(filename, mimetype="text/csv", as_attachment=True, download_name=filename)
 
     except Exception as e:
-        print("ExportCSV Simple Error:", e)
+        print("ExportCSV Error:", e)
         return jsonify({"status": "error", "message": str(e)}), 500
 
+
 # ======================================
-# 📌 시간대별 평균 (0~23시)
-#     - GET /analytics/hourly
+# 📌 시간대별 평균
 # ======================================
-@app.route('/analytics/hourly', methods=['GET'])
-def get_hourly_avg():
+@app.route('/analytics/hourly')
+def hourly():
     try:
         conn = connect_mysql()
         if conn is None:
-            return jsonify({"status": "error", "message": "DB connect error"}), 500
-        
+            return jsonify({"status": "error"}), 500
+
         with conn.cursor() as cur:
-            sql = "SELECT timestamp, people_count FROM people_log ORDER BY timestamp ASC"
-            cur.execute(sql)
+            cur.execute("SELECT timestamp, people_count FROM people_log ORDER BY timestamp ASC")
             rows = cur.fetchall()
-        
-        if not rows:
-            return jsonify({"status": "error", "message": "데이터 없음"}), 404
-        
+
         df = pd.DataFrame(rows)
         df["timestamp"] = pd.to_datetime(df["timestamp"])
         df["hour"] = df["timestamp"].dt.hour
-        
-        # 시간별 평균
+
         hourly_avg = df.groupby("hour")["people_count"].mean().to_dict()
-        
-        return jsonify({
-            "status": "ok",
-            "hourly_avg": hourly_avg
-        })
-    
+
+        return jsonify({"status": "ok", "hourly_avg": hourly_avg})
+
     except Exception as e:
-        print("Hourly Avg Error:", e)
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
 # ======================================
-# 📌 요일별 평균 (월=0 ~ 일=6)
-#     - GET /analytics/weekday
+# 📌 요일별 평균
 # ======================================
-@app.route('/analytics/weekday', methods=['GET'])
-def get_weekday_avg():
+@app.route('/analytics/weekday')
+def weekday():
     try:
         conn = connect_mysql()
-        if conn is None:
-            return jsonify({"status": "error", "message": "DB connect error"}), 500
-        
         with conn.cursor() as cur:
-            sql = "SELECT timestamp, people_count FROM people_log ORDER BY timestamp ASC"
-            cur.execute(sql)
+            cur.execute("SELECT timestamp, people_count FROM people_log ORDER BY timestamp ASC")
             rows = cur.fetchall()
-        
-        if not rows:
-            return jsonify({"status": "error", "message": "데이터 없음"}), 404
-        
+
         df = pd.DataFrame(rows)
         df["timestamp"] = pd.to_datetime(df["timestamp"])
         df["weekday"] = df["timestamp"].dt.weekday
-        
+
         weekday_avg = df.groupby("weekday")["people_count"].mean().to_dict()
-        
-        return jsonify({
-            "status": "ok",
-            "weekday_avg": weekday_avg
-        })
-    
+
+        return jsonify({"status": "ok", "weekday_avg": weekday_avg})
+
     except Exception as e:
-        print("Weekday Avg Error:", e)
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
 # ======================================
-# 📌 다음주 같은 시간대 예측
-#     - GET /analytics/predict
+# 📌 예측 API
 # ======================================
-from sklearn.linear_model import LinearRegression
-import numpy as np
-
-@app.route('/analytics/predict', methods=['GET'])
-def get_prediction():
+@app.route('/analytics/predict')
+def predict():
     try:
         conn = connect_mysql()
-        if conn is None:
-            return jsonify({"status": "error", "message": "DB connect error"}), 500
-        
         with conn.cursor() as cur:
-            sql = "SELECT timestamp, people_count FROM people_log ORDER BY timestamp ASC"
-            cur.execute(sql)
+            cur.execute("SELECT timestamp, people_count FROM people_log ORDER BY timestamp ASC")
             rows = cur.fetchall()
-        
-        if not rows or len(rows) < 20:
-            return jsonify({"status": "error", "message": "학습 데이터 부족"}), 400
-        
+
+        # 데이터 부족 시 fallback
+        if not rows or len(rows) < 10:
+            last = rows[-1]["people_count"] if rows else 0
+            return jsonify({
+                "status": "ok",
+                "predict_next_week": last,
+                "future_time": (datetime.now(KST) + timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S"),
+                "fallback": True
+            })
+
         df = pd.DataFrame(rows)
         df["timestamp"] = pd.to_datetime(df["timestamp"])
-        
-        # 학습용 feature
         df["minute"] = df["timestamp"].astype(np.int64) // 10**9
         df["hour"] = df["timestamp"].dt.hour
         df["weekday"] = df["timestamp"].dt.weekday
-        
+
         X = df[["minute", "hour", "weekday"]]
-        y = df["people_count"]
-        
+        y = df["people_count"].astype(float)
+
         model = LinearRegression()
         model.fit(X, y)
-        
-        # 미래 7일 뒤
-        future = datetime.now(KST) + timedelta(days=7)
-        future_data = [
-            int(future.timestamp()),
-            future.hour,
-            future.weekday()
-        ]
-        
-        pred = float(model.predict([future_data])[0])
-        
+
+        future_dt = datetime.now(KST) + timedelta(days=7)
+        future_features = pd.DataFrame([{
+            "minute": int(future_dt.timestamp()),
+            "hour": future_dt.hour,
+            "weekday": future_dt.weekday()
+        }])
+
+        pred = float(model.predict(future_features)[0])
+        if pred < 0:
+            pred = 0
+
         return jsonify({
             "status": "ok",
             "predict_next_week": pred,
-            "future_time": future.strftime("%Y-%m-%d %H:%M:%S")
+            "future_time": future_dt.strftime("%Y-%m-%d %H:%M:%S"),
+            "fallback": False
         })
-    
+
     except Exception as e:
-        print("Prediction Error:", e)
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
@@ -369,13 +311,13 @@ def get_prediction():
 def test_mysql():
     conn = connect_mysql()
     if conn is None:
-        return jsonify({"status": "error", "message": "MySQL connect failed"})
+        return jsonify({"status": "error"})
 
     with conn.cursor() as cur:
         cur.execute("SELECT 1 AS result")
-        result = cur.fetchone()
+        res = cur.fetchone()
 
-    return jsonify({"status": "ok", "result": result})
+    return jsonify({"status": "ok", "result": res})
 
 
 @app.route('/')
