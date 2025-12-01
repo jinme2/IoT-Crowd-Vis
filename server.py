@@ -255,69 +255,76 @@ def weekday():
 @app.route("/analytics/predict", methods=["GET"])
 def predict_next_week():
     try:
-        # 1. DB에서 데이터 가져오기
         conn = connect_mysql()
         with conn.cursor() as cursor:
-            cursor.execute("SELECT timestamp, people_count FROM people_log")
+            query = """
+                SELECT timestamp, people_count
+                FROM people
+                ORDER BY timestamp ASC
+            """
+            cursor.execute(query)
             rows = cursor.fetchall()
         conn.close()
 
-        if not rows:
-            return jsonify({
-                "status": "error",
-                "message": "No data available"
-            })
-
-        # 2. pandas DataFrame으로 변환
-        df = pd.DataFrame(rows)
-
-        # 3. timestamp → KST timezone-aware 변환 (핵심 해결)
-        df["timestamp"] = pd.to_datetime(df["timestamp"]).dt.tz_localize("Asia/Seoul")
-
-        # 4. 현재 KST 기준 시간
-        now = datetime.now(KST)
-
-        # 미래 예측 시간 = 1주 뒤
-        future_dt = now + timedelta(days=7)
-
-        # 지난주 같은 요일의 같은 시간 범위 계산
-        last_week_dt = now - timedelta(days=7)
-
-        hour_start = last_week_dt.replace(minute=0, second=0, microsecond=0)
-        hour_end = hour_start + timedelta(hours=1)
-
-        # pandas Timestamp로 변환 (tz-aware 유지)
-        hour_start = pd.Timestamp(hour_start, tz="Asia/Seoul")
-        hour_end = pd.Timestamp(hour_end, tz="Asia/Seoul")
-
-        print("DEBUG hour_start:", hour_start)
-        print("DEBUG hour_end:", hour_end)
-        print("DEBUG df timestamp example:", df["timestamp"].iloc[0], type(df["timestamp"].iloc[0]))
-
-        # 5. 지난주 동일 시간대 필터링
-        mask = (df["timestamp"] >= hour_start) & (df["timestamp"] < hour_end)
-        target_df = df.loc[mask]
-
-        print("DEBUG filtered rows:", len(target_df))
-
-        # 6. 값이 있으면 평균으로 예측
-        if len(target_df) > 0:
-            pred_value = int(target_df["people_count"].mean())
+        # 데이터 없으면 fallback 처리
+        if not rows or len(rows) < 5:
+            future_time = datetime.now() + timedelta(days=7)
             return jsonify({
                 "status": "ok",
-                "fallback": False,
-                "future_time": future_dt.strftime("%Y-%m-%d %H:%M:%S"),
-                "predict_next_week": pred_value
+                "fallback": True,
+                "predict_next_week": 0,
+                "future_time": future_time.strftime("%Y-%m-%d %H:%M:%S")
             })
 
-        # 7. 값이 없으면 fallback → 전체 평균
-        overall_avg = int(df["people_count"].mean())
+        # DataFrame 변환
+        df = pd.DataFrame(rows)
+
+        # timestamp를 datetime으로 변환 + 타임존 제거
+        df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+        df["timestamp"] = df["timestamp"].dt.tz_localize(None)
+
+        # null timestamp 삭제
+        df = df.dropna(subset=["timestamp"])
+
+        # 최근 1주 데이터만 사용
+        seven_days_ago = df["timestamp"].max() - pd.Timedelta(days=7)
+        df_week = df[df["timestamp"] >= seven_days_ago]
+
+        if df_week.empty:
+            df_week = df.copy()
+
+        # ---------------------------
+        #  옵션 C — 요일 + 시간대 평균 예측
+        # ---------------------------
+        df_week["weekday"] = df_week["timestamp"].dt.weekday   # 월=0, 일=6
+        df_week["hour"] = df_week["timestamp"].dt.hour
+
+        now = datetime.now()
+        target_weekday = now.weekday()
+        target_hour = now.hour
+
+        # 요일 & 시간대가 같은 데이터만 추출
+        group = df_week[
+            (df_week["weekday"] == target_weekday) &
+            (df_week["hour"] == target_hour)
+        ]
+
+        if group.empty:
+            # 동일 시간대 없으면 전체 평균으로 fallback
+            predicted = float(df_week["people_count"].mean())
+            fallback = True
+        else:
+            predicted = float(group["people_count"].mean())
+            fallback = False
+
+        # 미래 시간 = 현재 + 7일
+        future_time = now + timedelta(days=7)
 
         return jsonify({
             "status": "ok",
-            "fallback": True,
-            "future_time": future_dt.strftime("%Y-%m-%d %H:%M:%S"),
-            "predict_next_week": overall_avg
+            "fallback": fallback,
+            "predict_next_week": round(predicted, 2),
+            "future_time": future_time.strftime("%Y-%m-%d %H:%M:%S")
         })
 
     except Exception as e:
