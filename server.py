@@ -275,24 +275,27 @@ def get_prediction():
         df = pd.DataFrame(rows)
         df["timestamp"] = pd.to_datetime(df["timestamp"])
 
-        # 1) 현재 시각
+        # 현재 시각
         now = datetime.now(KST)
 
-        # 2) 예측 대상 시각 = 다음 주 같은 요일/시간
+        # 다음주 같은 시간
         future_dt = now + timedelta(days=7)
 
-        # 3) "지난주 같은 요일 같은 시간대(1시간 구간)"
+        # 지난주 같은 요일 같은 시간대
         last_week_dt = now - timedelta(days=7)
 
         hour_start = last_week_dt.replace(minute=0, second=0, microsecond=0)
         hour_end = hour_start + timedelta(hours=1)
 
-        # 4) 필터링
+        # 🔥 pandas 타입으로 변환 (중요!)
+        hour_start = pd.Timestamp(hour_start)
+        hour_end = pd.Timestamp(hour_end)
+
+        # 필터링
         mask = (df["timestamp"] >= hour_start) & (df["timestamp"] < hour_end)
         target_df = df[mask]
 
         if len(target_df) == 0:
-            # 데이터를 찾지 못하면 전체 평균 또는 최근값 fallback
             fallback_value = df["people_count"].mean()
             return jsonify({
                 "status": "ok",
@@ -301,7 +304,6 @@ def get_prediction():
                 "fallback": True
             })
 
-        # 5) 동일 시간대 평균값
         pred = target_df["people_count"].mean()
 
         return jsonify({
@@ -314,6 +316,7 @@ def get_prediction():
     except Exception as e:
         print("Prediction Error:", e)
         return jsonify({"status": "error", "message": str(e)}), 500
+
 
 # ======================================
 # 📌 MySQL 연결 테스트
