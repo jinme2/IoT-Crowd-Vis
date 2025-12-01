@@ -252,70 +252,79 @@ def weekday():
 # ======================================
 # 📌 예측 API
 # ======================================
-@app.route('/analytics/predict', methods=['GET'])
-def get_prediction():
+@app.route("/analytics/predict", methods=["GET"])
+def predict_next_week():
     try:
+        # 1. DB에서 데이터 가져오기
         conn = connect_mysql()
-        if conn is None:
-            return jsonify({"status": "error", "message": "DB connect error"}), 500
-
-        with conn.cursor() as cur:
-            sql = "SELECT timestamp, people_count FROM people_log ORDER BY timestamp ASC"
-            cur.execute(sql)
-            rows = cur.fetchall()
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT timestamp, people_count FROM people")
+            rows = cursor.fetchall()
+        conn.close()
 
         if not rows:
             return jsonify({
-                "status": "ok",
-                "predict_next_week": 0,
-                "future_time": None,
-                "fallback": True
+                "status": "error",
+                "message": "No data available"
             })
 
+        # 2. pandas DataFrame으로 변환
         df = pd.DataFrame(rows)
-        df["timestamp"] = pd.to_datetime(df["timestamp"])
 
-        # 현재 시각
+        # 3. timestamp → KST timezone-aware 변환 (핵심 해결)
+        df["timestamp"] = pd.to_datetime(df["timestamp"]).dt.tz_localize("Asia/Seoul")
+
+        # 4. 현재 KST 기준 시간
         now = datetime.now(KST)
 
-        # 다음주 같은 시간
+        # 미래 예측 시간 = 1주 뒤
         future_dt = now + timedelta(days=7)
 
-        # 지난주 같은 요일 같은 시간대
+        # 지난주 같은 요일의 같은 시간 범위 계산
         last_week_dt = now - timedelta(days=7)
 
         hour_start = last_week_dt.replace(minute=0, second=0, microsecond=0)
         hour_end = hour_start + timedelta(hours=1)
 
-        # 🔥 pandas 타입으로 변환 (중요!)
-        hour_start = pd.Timestamp(hour_start)
-        hour_end = pd.Timestamp(hour_end)
+        # pandas Timestamp로 변환 (tz-aware 유지)
+        hour_start = pd.Timestamp(hour_start, tz="Asia/Seoul")
+        hour_end = pd.Timestamp(hour_end, tz="Asia/Seoul")
 
-        # 필터링
+        print("DEBUG hour_start:", hour_start)
+        print("DEBUG hour_end:", hour_end)
+        print("DEBUG df timestamp example:", df["timestamp"].iloc[0], type(df["timestamp"].iloc[0]))
+
+        # 5. 지난주 동일 시간대 필터링
         mask = (df["timestamp"] >= hour_start) & (df["timestamp"] < hour_end)
-        target_df = df[mask]
+        target_df = df.loc[mask]
 
-        if len(target_df) == 0:
-            fallback_value = df["people_count"].mean()
+        print("DEBUG filtered rows:", len(target_df))
+
+        # 6. 값이 있으면 평균으로 예측
+        if len(target_df) > 0:
+            pred_value = int(target_df["people_count"].mean())
             return jsonify({
                 "status": "ok",
-                "predict_next_week": float(fallback_value),
+                "fallback": False,
                 "future_time": future_dt.strftime("%Y-%m-%d %H:%M:%S"),
-                "fallback": True
+                "predict_next_week": pred_value
             })
 
-        pred = target_df["people_count"].mean()
+        # 7. 값이 없으면 fallback → 전체 평균
+        overall_avg = int(df["people_count"].mean())
 
         return jsonify({
             "status": "ok",
-            "predict_next_week": float(pred),
+            "fallback": True,
             "future_time": future_dt.strftime("%Y-%m-%d %H:%M:%S"),
-            "fallback": False
+            "predict_next_week": overall_avg
         })
 
     except Exception as e:
-        print("Prediction Error:", e)
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        })
 
 
 # ======================================
