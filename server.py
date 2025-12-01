@@ -258,7 +258,7 @@ def predict_next_week():
         # 1. DB에서 데이터 가져오기
         conn = connect_mysql()
         with conn.cursor() as cursor:
-            cursor.execute("SELECT timestamp, people_count FROM people")
+            cursor.execute("SELECT timestamp, people_count FROM people_log")
             rows = cursor.fetchall()
         conn.close()
 
