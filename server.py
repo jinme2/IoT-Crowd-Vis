@@ -252,57 +252,68 @@ def weekday():
 # ======================================
 # 📌 예측 API
 # ======================================
-@app.route('/analytics/predict')
-def predict():
+@app.route('/analytics/predict', methods=['GET'])
+def get_prediction():
     try:
         conn = connect_mysql()
+        if conn is None:
+            return jsonify({"status": "error", "message": "DB connect error"}), 500
+
         with conn.cursor() as cur:
-            cur.execute("SELECT timestamp, people_count FROM people_log ORDER BY timestamp ASC")
+            sql = "SELECT timestamp, people_count FROM people_log ORDER BY timestamp ASC"
+            cur.execute(sql)
             rows = cur.fetchall()
 
-        # 데이터 부족 시 fallback
-        if not rows or len(rows) < 10:
-            last = rows[-1]["people_count"] if rows else 0
+        if not rows:
             return jsonify({
                 "status": "ok",
-                "predict_next_week": last,
-                "future_time": (datetime.now(KST) + timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S"),
+                "predict_next_week": 0,
+                "future_time": None,
                 "fallback": True
             })
 
         df = pd.DataFrame(rows)
         df["timestamp"] = pd.to_datetime(df["timestamp"])
-        df["minute"] = df["timestamp"].astype(np.int64) // 10**9
-        df["hour"] = df["timestamp"].dt.hour
-        df["weekday"] = df["timestamp"].dt.weekday
 
-        X = df[["minute", "hour", "weekday"]]
-        y = df["people_count"].astype(float)
+        # 1) 현재 시각
+        now = datetime.now(KST)
 
-        model = LinearRegression()
-        model.fit(X, y)
+        # 2) 예측 대상 시각 = 다음 주 같은 요일/시간
+        future_dt = now + timedelta(days=7)
 
-        future_dt = datetime.now(KST) + timedelta(days=7)
-        future_features = pd.DataFrame([{
-            "minute": int(future_dt.timestamp()),
-            "hour": future_dt.hour,
-            "weekday": future_dt.weekday()
-        }])
+        # 3) "지난주 같은 요일 같은 시간대(1시간 구간)"
+        last_week_dt = now - timedelta(days=7)
 
-        pred = float(model.predict(future_features)[0])
-        if pred < 0:
-            pred = 0
+        hour_start = last_week_dt.replace(minute=0, second=0, microsecond=0)
+        hour_end = hour_start + timedelta(hours=1)
+
+        # 4) 필터링
+        mask = (df["timestamp"] >= hour_start) & (df["timestamp"] < hour_end)
+        target_df = df[mask]
+
+        if len(target_df) == 0:
+            # 데이터를 찾지 못하면 전체 평균 또는 최근값 fallback
+            fallback_value = df["people_count"].mean()
+            return jsonify({
+                "status": "ok",
+                "predict_next_week": float(fallback_value),
+                "future_time": future_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                "fallback": True
+            })
+
+        # 5) 동일 시간대 평균값
+        pred = target_df["people_count"].mean()
 
         return jsonify({
             "status": "ok",
-            "predict_next_week": pred,
+            "predict_next_week": float(pred),
             "future_time": future_dt.strftime("%Y-%m-%d %H:%M:%S"),
             "fallback": False
         })
 
     except Exception as e:
+        print("Prediction Error:", e)
         return jsonify({"status": "error", "message": str(e)}), 500
-
 
 # ======================================
 # 📌 MySQL 연결 테스트
