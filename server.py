@@ -252,36 +252,36 @@ def weekday():
 # ======================================
 # 📌 예측 API
 # ======================================
-@app.route('/analytics/predict')
-def predict():
+@app.route('/analytics/predict', methods=['GET'])
+def get_prediction():
     try:
-        conn = connect_mysql()
-        with conn.cursor() as cur:
-            cur.execute("SELECT timestamp, people_count FROM people_log ORDER BY timestamp ASC")
-            rows = cur.fetchall()
+        # 1) CSV 파일 읽기
+        df = pd.read_csv("all_data.csv")
 
-        # 데이터 부족 시 fallback
-        if not rows or len(rows) < 10:
-            last = rows[-1]["people_count"] if rows else 0
+        if df.empty or len(df) < 10:
+            # 데이터 부족 → 최근 값 반환
+            last_value = df.iloc[-1]["people_count"] if not df.empty else 0
             return jsonify({
                 "status": "ok",
-                "predict_next_week": last,
+                "predict_next_week": last_value,
                 "future_time": (datetime.now(KST) + timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S"),
                 "fallback": True
             })
 
-        df = pd.DataFrame(rows)
+        # 2) timestamp 변환
         df["timestamp"] = pd.to_datetime(df["timestamp"])
-        df["minute"] = df["timestamp"].astype(np.int64) // 10**9
+        df["minute"] = df["timestamp"].astype('int64') // 10**9
         df["hour"] = df["timestamp"].dt.hour
         df["weekday"] = df["timestamp"].dt.weekday
 
+        # 3) 학습
         X = df[["minute", "hour", "weekday"]]
-        y = df["people_count"].astype(float)
+        y = df["people_count"]
 
         model = LinearRegression()
         model.fit(X, y)
 
+        # 4) 미래 예측
         future_dt = datetime.now(KST) + timedelta(days=7)
         future_features = pd.DataFrame([{
             "minute": int(future_dt.timestamp()),
@@ -289,19 +289,20 @@ def predict():
             "weekday": future_dt.weekday()
         }])
 
-        pred = float(model.predict(future_features)[0])
+        pred = model.predict(future_features)[0]
         if pred < 0:
             pred = 0
 
         return jsonify({
             "status": "ok",
-            "predict_next_week": pred,
+            "predict_next_week": float(pred),
             "future_time": future_dt.strftime("%Y-%m-%d %H:%M:%S"),
             "fallback": False
         })
 
     except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+        print("Prediction CSV Error:", e)
+        return jsonify({"status": "error", "message": str(e)})
 
 
 # ======================================
