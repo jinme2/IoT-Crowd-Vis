@@ -252,86 +252,56 @@ def weekday():
 # ======================================
 # 📌 예측 API
 # ======================================
-@app.route("/analytics/predict", methods=["GET"])
-def predict_next_week():
+@app.route('/analytics/predict')
+def predict():
     try:
         conn = connect_mysql()
-        with conn.cursor() as cursor:
-            query = """
-                SELECT timestamp, people_count
-                FROM people
-                ORDER BY timestamp ASC
-            """
-            cursor.execute(query)
-            rows = cursor.fetchall()
-        conn.close()
+        with conn.cursor() as cur:
+            cur.execute("SELECT timestamp, people_count FROM people_log ORDER BY timestamp ASC")
+            rows = cur.fetchall()
 
-        # 데이터 없으면 fallback 처리
-        if not rows or len(rows) < 5:
-            future_time = datetime.now() + timedelta(days=7)
+        # 데이터 부족 시 fallback
+        if not rows or len(rows) < 10:
+            last = rows[-1]["people_count"] if rows else 0
             return jsonify({
                 "status": "ok",
-                "fallback": True,
-                "predict_next_week": 0,
-                "future_time": future_time.strftime("%Y-%m-%d %H:%M:%S")
+                "predict_next_week": last,
+                "future_time": (datetime.now(KST) + timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S"),
+                "fallback": True
             })
 
-        # DataFrame 변환
         df = pd.DataFrame(rows)
+        df["timestamp"] = pd.to_datetime(df["timestamp"])
+        df["minute"] = df["timestamp"].astype(np.int64) // 10**9
+        df["hour"] = df["timestamp"].dt.hour
+        df["weekday"] = df["timestamp"].dt.weekday
 
-        # timestamp를 datetime으로 변환 + 타임존 제거
-        df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
-        df["timestamp"] = df["timestamp"].dt.tz_localize(None)
+        X = df[["minute", "hour", "weekday"]]
+        y = df["people_count"].astype(float)
 
-        # null timestamp 삭제
-        df = df.dropna(subset=["timestamp"])
+        model = LinearRegression()
+        model.fit(X, y)
 
-        # 최근 1주 데이터만 사용
-        seven_days_ago = df["timestamp"].max() - pd.Timedelta(days=7)
-        df_week = df[df["timestamp"] >= seven_days_ago]
+        future_dt = datetime.now(KST) + timedelta(days=7)
+        future_features = pd.DataFrame([{
+            "minute": int(future_dt.timestamp()),
+            "hour": future_dt.hour,
+            "weekday": future_dt.weekday()
+        }])
 
-        if df_week.empty:
-            df_week = df.copy()
-
-        # ---------------------------
-        #  옵션 C — 요일 + 시간대 평균 예측
-        # ---------------------------
-        df_week["weekday"] = df_week["timestamp"].dt.weekday   # 월=0, 일=6
-        df_week["hour"] = df_week["timestamp"].dt.hour
-
-        now = datetime.now()
-        target_weekday = now.weekday()
-        target_hour = now.hour
-
-        # 요일 & 시간대가 같은 데이터만 추출
-        group = df_week[
-            (df_week["weekday"] == target_weekday) &
-            (df_week["hour"] == target_hour)
-        ]
-
-        if group.empty:
-            # 동일 시간대 없으면 전체 평균으로 fallback
-            predicted = float(df_week["people_count"].mean())
-            fallback = True
-        else:
-            predicted = float(group["people_count"].mean())
-            fallback = False
-
-        # 미래 시간 = 현재 + 7일
-        future_time = now + timedelta(days=7)
+        pred = float(model.predict(future_features)[0])
+        if pred < 0:
+            pred = 0
 
         return jsonify({
             "status": "ok",
-            "fallback": fallback,
-            "predict_next_week": round(predicted, 2),
-            "future_time": future_time.strftime("%Y-%m-%d %H:%M:%S")
+            "predict_next_week": pred,
+            "future_time": future_dt.strftime("%Y-%m-%d %H:%M:%S"),
+            "fallback": False
         })
 
     except Exception as e:
-        return jsonify({
-            "status": "error",
-            "message": str(e)
-        })
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 
 # ======================================
