@@ -321,7 +321,6 @@ def weekday():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
-
 # ======================================
 # 📌 예측 API
 # ======================================
@@ -338,7 +337,6 @@ def get_prediction():
             df = df[df["room"] == room]
 
         if df.empty or len(df) < 10:
-            # 데이터 부족 → fallback
             last_value = df.iloc[-1]["people_count"] if not df.empty else 0
             return jsonify({
                 "status": "ok",
@@ -348,11 +346,12 @@ def get_prediction():
                 "fallback": True
             })
 
-        # timestamp 변환
+        # timestamp 변환 → tz-naive
         df["timestamp"] = pd.to_datetime(df["timestamp"])
 
-        # 🔥 핵심 수정 1: 상대 시간(minute offset) 사용
-        df["minute"] = (df["timestamp"] - df["timestamp"].min()).dt.total_seconds() / 60
+        # 🔥 offset minute 사용
+        base_time = df["timestamp"].min()
+        df["minute"] = (df["timestamp"] - base_time).dt.total_seconds() / 60
 
         df["hour"] = df["timestamp"].dt.hour
         df["weekday"] = df["timestamp"].dt.weekday
@@ -364,11 +363,12 @@ def get_prediction():
         model = LinearRegression()
         model.fit(X, y)
 
-        # 미래 시간 지점
-        future_dt = datetime.now(KST) + timedelta(days=7)
+        # 🔥 future_dt를 tz-aware → tz-naive로 변환
+        now_kst = datetime.now(KST)
+        future_dt = now_kst.replace(tzinfo=None) + timedelta(days=7)
 
-        # 🔥 핵심 수정 2: 미래 minute도 offset 방식으로 계산
-        future_minute = (future_dt - df["timestamp"].min()).total_seconds() / 60
+        # 🔥 미래 offset 계산
+        future_minute = (future_dt - base_time).total_seconds() / 60
 
         future_features = pd.DataFrame([{
             "minute": future_minute,
@@ -391,6 +391,7 @@ def get_prediction():
     except Exception as e:
         print("Prediction Error:", e)
         return jsonify({"status": "error", "message": str(e)})
+
 
 
 
