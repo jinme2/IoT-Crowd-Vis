@@ -322,68 +322,61 @@ def weekday():
 
 
 # ======================================
-# 📌 예측 API
+# 📌 예측 API (요일 + 시간대 기반 평균)
 # ======================================
 @app.route('/analytics/predict', methods=['GET'])
 def get_prediction():
     try:
         room = request.args.get("room", None)
 
-        # 1) CSV 읽기
+        # CSV 불러오기
         df = pd.read_csv("all_data.csv")
 
         # 방 필터링
         if room:
             df = df[df["room"] == room]
 
-        if df.empty or len(df) < 10:
-            last_value = df.iloc[-1]["people_count"] if not df.empty else 0
+        # 최소 데이터 체크
+        if df.empty:
             return jsonify({
                 "status": "ok",
                 "room": room,
-                "predict_next_week": last_value,
+                "predict_next_week": 0,
                 "future_time": (datetime.now(KST) + timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S"),
                 "fallback": True
             })
 
-        # timestamp 변환 → tz-naive
+        # timestamp 변환
         df["timestamp"] = pd.to_datetime(df["timestamp"])
-
-        # 🔥 offset minute 사용
-        base_time = df["timestamp"].min()
-        df["minute"] = (df["timestamp"] - base_time).dt.total_seconds() / 60
-
         df["hour"] = df["timestamp"].dt.hour
         df["weekday"] = df["timestamp"].dt.weekday
 
-        # 학습
-        X = df[["minute", "hour", "weekday"]]
-        y = df["people_count"]
+        # 예측할 시간 (7일 후 동일 시간)
+        future_dt = datetime.now(KST) + timedelta(days=7)
+        f_hour = future_dt.hour
+        f_weekday = future_dt.weekday()
 
-        model = LinearRegression()
-        model.fit(X, y)
+        # 예측 조건에 맞는 데이터만 찾기
+        match_df = df[(df["hour"] == f_hour) & (df["weekday"] == f_weekday)]
 
-        # 🔥 future_dt를 tz-aware → tz-naive로 변환
-        now_kst = datetime.now(KST)
-        future_dt = now_kst.replace(tzinfo=None) + timedelta(days=7)
+        if len(match_df) == 0:
+            # fallback → 전체 평균
+            fallback_value = df["people_count"].mean()
+            return jsonify({
+                "status": "ok",
+                "room": room,
+                "predict_next_week": float(fallback_value),
+                "future_time": future_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                "fallback": True
+            })
 
-        # 🔥 미래 offset 계산
-        future_minute = (future_dt - base_time).total_seconds() / 60
-
-        future_features = pd.DataFrame([{
-            "minute": future_minute,
-            "hour": future_dt.hour,
-            "weekday": future_dt.weekday()
-        }])
-
-        pred = model.predict(future_features)[0]
-        if pred < 0:
-            pred = 0
+        # 평균값 계산 (진짜 예측 결과)
+        prediction = match_df["people_count"].mean()
 
         return jsonify({
             "status": "ok",
             "room": room,
-            "predict_next_week": float(pred),
+            "predict_next_week": float(prediction),
             "future_time": future_dt.strftime("%Y-%m-%d %H:%M:%S"),
             "fallback": False
         })
