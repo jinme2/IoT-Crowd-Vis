@@ -69,7 +69,7 @@ def upload():
         data = request.get_json()
 
         camera_id = data.get("camera_id")
-        room = data.get("room")
+        room = data.get("room", "lobby")
         people_count = data.get("people_count")
         timestamp = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -108,9 +108,27 @@ def get_people():
         if conn is None:
             return jsonify({"status": "error", "message": "DB connect error"}), 500
 
+        room = request.args.get('room', None)
+
         with conn.cursor() as cur:
-            sql = "SELECT * FROM people_log ORDER BY id DESC LIMIT %s"
-            cur.execute(sql, (limit,))
+            if room:
+                sql = """
+                    SELECT *
+                    FROM people_log
+                    WHERE room = %s
+                    ORDER BY id DESC
+                    LIMIT %s
+                """
+                cur.execute(sql, (room, limit))
+            else:
+                sql = """
+                    SELECT *
+                    FROM people_log
+                    ORDER BY id DESC
+                    LIMIT %s
+                """
+                cur.execute(sql, (limit,))
+
             rows = cur.fetchall()
 
         return jsonify({"status": "ok", "count": len(rows), "data": rows})
@@ -127,6 +145,7 @@ def get_people():
 def get_people_by_date():
     try:
         date_str = request.args.get('date')
+        room = request.args.get('room', None)
 
         if not date_str:
             return jsonify({
@@ -143,12 +162,24 @@ def get_people_by_date():
             return jsonify({"status": "error", "message": "DB connect error"}), 500
 
         with conn.cursor() as cur:
-            sql = """
-                SELECT * FROM people_log
-                WHERE timestamp BETWEEN %s AND %s
-                ORDER BY id DESC
-            """
-            cur.execute(sql, (start_dt, end_dt))
+            if room:
+                sql = """
+                    SELECT *
+                    FROM people_log
+                    WHERE timestamp BETWEEN %s AND %s
+                    AND room = %s
+                    ORDER BY timestamp ASC
+                """
+                cur.execute(sql, (start_dt, end_dt, room))
+            else:
+                sql = """
+                    SELECT *
+                    FROM people_log
+                    WHERE timestamp BETWEEN %s AND %s
+                    ORDER BY timestamp ASC
+                """
+                cur.execute(sql, (start_dt, end_dt))
+
             rows = cur.fetchall()
 
         return jsonify({
@@ -164,6 +195,7 @@ def get_people_by_date():
     except Exception as e:
         print("GetPeopleByDate Error:", e)
         return jsonify({"status": "error", "message": str(e)}), 500
+
 
 
 # ======================================
@@ -206,13 +238,31 @@ def export_csv_simple():
 @app.route('/analytics/hourly')
 def hourly():
     try:
+        room = request.args.get('room', None)
+
         conn = connect_mysql()
         if conn is None:
             return jsonify({"status": "error"}), 500
 
         with conn.cursor() as cur:
-            cur.execute("SELECT timestamp, people_count FROM people_log ORDER BY timestamp ASC")
+            if room:
+                cur.execute("""
+                    SELECT timestamp, people_count
+                    FROM people_log
+                    WHERE room = %s
+                    ORDER BY timestamp ASC
+                """, (room,))
+            else:
+                cur.execute("""
+                    SELECT timestamp, people_count
+                    FROM people_log
+                    ORDER BY timestamp ASC
+                """)
+
             rows = cur.fetchall()
+
+        if not rows:
+            return jsonify({"status": "ok", "hourly_avg": {}})
 
         df = pd.DataFrame(rows)
         df["timestamp"] = pd.to_datetime(df["timestamp"])
@@ -226,16 +276,38 @@ def hourly():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+
 # ======================================
 # 📌 요일별 평균
 # ======================================
 @app.route('/analytics/weekday')
 def weekday():
     try:
+        room = request.args.get('room', None)
+
         conn = connect_mysql()
+        if conn is None:
+            return jsonify({"status": "error"}), 500
+
         with conn.cursor() as cur:
-            cur.execute("SELECT timestamp, people_count FROM people_log ORDER BY timestamp ASC")
+            if room:
+                cur.execute("""
+                    SELECT timestamp, people_count
+                    FROM people_log
+                    WHERE room = %s
+                    ORDER BY timestamp ASC
+                """, (room,))
+            else:
+                cur.execute("""
+                    SELECT timestamp, people_count
+                    FROM people_log
+                    ORDER BY timestamp ASC
+                """)
+
             rows = cur.fetchall()
+
+        if not rows:
+            return jsonify({"status": "ok", "weekday_avg": {}})
 
         df = pd.DataFrame(rows)
         df["timestamp"] = pd.to_datetime(df["timestamp"])
@@ -249,17 +321,24 @@ def weekday():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+
 # ======================================
 # 📌 예측 API
 # ======================================
 @app.route('/analytics/predict', methods=['GET'])
 def get_prediction():
     try:
-        # 1) CSV 파일 읽기
+        room = request.args.get("room", None)
+
+        # 1) CSV 읽기
         df = pd.read_csv("all_data.csv")
 
+        # 방 필터링
+        if room:
+            df = df[df["room"] == room]
+
         if df.empty or len(df) < 10:
-            # 데이터 부족 → 최근 값 반환
+            # 데이터 부족 → fallback
             last_value = df.iloc[-1]["people_count"] if not df.empty else 0
             return jsonify({
                 "status": "ok",
@@ -268,20 +347,20 @@ def get_prediction():
                 "fallback": True
             })
 
-        # 2) timestamp 변환
+        # timestamp 변환
         df["timestamp"] = pd.to_datetime(df["timestamp"])
-        df["minute"] = df["timestamp"].astype('int64') // 10**9
+        df["minute"] = df["timestamp"].astype("int64") // 10**9
         df["hour"] = df["timestamp"].dt.hour
         df["weekday"] = df["timestamp"].dt.weekday
 
-        # 3) 학습
+        # 학습
         X = df[["minute", "hour", "weekday"]]
         y = df["people_count"]
 
         model = LinearRegression()
         model.fit(X, y)
 
-        # 4) 미래 예측
+        # 미래 시간
         future_dt = datetime.now(KST) + timedelta(days=7)
         future_features = pd.DataFrame([{
             "minute": int(future_dt.timestamp()),
@@ -295,15 +374,15 @@ def get_prediction():
 
         return jsonify({
             "status": "ok",
+            "room": room,
             "predict_next_week": float(pred),
             "future_time": future_dt.strftime("%Y-%m-%d %H:%M:%S"),
             "fallback": False
         })
 
     except Exception as e:
-        print("Prediction CSV Error:", e)
+        print("Prediction Error:", e)
         return jsonify({"status": "error", "message": str(e)})
-        
 
 
 # ======================================
