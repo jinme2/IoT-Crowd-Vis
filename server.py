@@ -342,6 +342,7 @@ def get_prediction():
             last_value = df.iloc[-1]["people_count"] if not df.empty else 0
             return jsonify({
                 "status": "ok",
+                "room": room,
                 "predict_next_week": last_value,
                 "future_time": (datetime.now(KST) + timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S"),
                 "fallback": True
@@ -349,7 +350,10 @@ def get_prediction():
 
         # timestamp 변환
         df["timestamp"] = pd.to_datetime(df["timestamp"])
-        df["minute"] = df["timestamp"].astype("int64") // 10**9
+
+        # 🔥 핵심 수정 1: 상대 시간(minute offset) 사용
+        df["minute"] = (df["timestamp"] - df["timestamp"].min()).dt.total_seconds() / 60
+
         df["hour"] = df["timestamp"].dt.hour
         df["weekday"] = df["timestamp"].dt.weekday
 
@@ -360,10 +364,14 @@ def get_prediction():
         model = LinearRegression()
         model.fit(X, y)
 
-        # 미래 시간
+        # 미래 시간 지점
         future_dt = datetime.now(KST) + timedelta(days=7)
+
+        # 🔥 핵심 수정 2: 미래 minute도 offset 방식으로 계산
+        future_minute = (future_dt - df["timestamp"].min()).total_seconds() / 60
+
         future_features = pd.DataFrame([{
-            "minute": int(future_dt.timestamp()),
+            "minute": future_minute,
             "hour": future_dt.hour,
             "weekday": future_dt.weekday()
         }])
@@ -383,6 +391,7 @@ def get_prediction():
     except Exception as e:
         print("Prediction Error:", e)
         return jsonify({"status": "error", "message": str(e)})
+
 
 
 # ======================================
