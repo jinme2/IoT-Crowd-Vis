@@ -69,7 +69,7 @@ def upload():
         data = request.get_json()
 
         camera_id = data.get("camera_id")
-        room = data.get("room", "lobby", "sspace", "espace", "tdmspace")
+        room = data.get("room", "lobby")
         people_count = data.get("people_count")
         timestamp = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
 
