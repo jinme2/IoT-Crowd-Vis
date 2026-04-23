@@ -10,7 +10,7 @@
 <table>
   <tr>
     <td align="center">
-      <img src="docs/Jeong.png" width="80%" /><br/><br/>
+      <img src="docs/Jeong.png" width="50%" /><br/><br/>
       <b>정재영</b><br/>
       <a href="https://github.com/Wjdwodud2525">@Wjdwodud2525</a><br/>
       Edge<br/>
@@ -24,7 +24,7 @@
       Flask · MySQL · AI 예측
     </td>
     <td align="center">
-      <img src="docs/Pyo.png" width="80%" /><br/><br/>
+      <img src="docs/Pyo.png" width="50%" /><br/><br/>
       <b>표현수</b><br/>
       <a href="https://github.com/Phytoncide">@Phytoncide</a><br/>
       Frontend<br/>
