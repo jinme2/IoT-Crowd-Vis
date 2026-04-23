@@ -10,21 +10,21 @@
 <table>
   <tr>
     <td align="center">
-      <img src="docs/정재영.png" width="80%" /><br/><br/>
+      <img src="docs/Jeong.png" width="80%" /><br/><br/>
       <b>정재영</b><br/>
       <a href="https://github.com/Wjdwodud2525">@Wjdwodud2525</a><br/>
       Edge<br/>
       PiCam · YOLOv8+CSRT · LED
     </td>
     <td align="center">
-      <img src="docs/최산해.png" width="80%" /><br/><br/>
+      <img src="docs/Choi.png" width="80%" /><br/><br/>
       <b>최산해</b><br/>
       <a href="https://github.com/jinme2">@jinme2</a><br/>
       Backend<br/>
       Flask · MySQL · AI 예측
     </td>
     <td align="center">
-      <img src="docs/표현수.png" width="80%" /><br/><br/>
+      <img src="docs/Pyo.png" width="80%" /><br/><br/>
       <b>표현수</b><br/>
       <a href="https://github.com/Phytoncide">@Phytoncide</a><br/>
       Frontend<br/>
