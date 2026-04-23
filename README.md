@@ -5,6 +5,36 @@
 
 <br>
 
+## 👥 팀원 소개
+
+<table>
+  <tr>
+    <td align="center">
+      <img src="docs/정재영.png" width="80%" /><br/><br/>
+      <b>정재영</b><br/>
+      <a href="https://github.com/Wjdwodud2525">@Wjdwodud2525</a><br/>
+      Edge<br/>
+      PiCam · YOLOv8+CSRT · LED
+    </td>
+    <td align="center">
+      <img src="docs/최산해.png" width="80%" /><br/><br/>
+      <b>최산해</b><br/>
+      <a href="https://github.com/jinme2">@jinme2</a><br/>
+      Backend<br/>
+      Flask · MySQL · AI 예측
+    </td>
+    <td align="center">
+      <img src="docs/표현수.png" width="80%" /><br/><br/>
+      <b>표현수</b><br/>
+      <a href="https://github.com/Phytoncide">@Phytoncide</a><br/>
+      Frontend<br/>
+      Chart.js · 반응형 UI · 실시간 폴링
+    </td>
+  </tr>
+</table>
+
+<br>
+
 ## 📌 프로젝트 개요
 
 조선대학교 IT융합대학 내 공간(C.space 로비, TDM 스마트팜 실습실 등)을 대상으로, 라즈베리파이 카메라가 실내 인원을 감지하고 웹 대시보드에서 혼잡도를 실시간으로 확인할 수 있는 AIoT 시스템입니다.
@@ -53,16 +83,6 @@
 
 ### 반응형 UI
 <img src="docs/image_10.png" width="100%" alt="반응형 UI"/>
-
-<br>
-
-## 👥 팀원 역할
-
-| 이름 | 파트 | 담당 |
-|------|------|------|
-| **정재영** | Edge | PiCam 입력, YOLOv8+CSRT 하이브리드 탐지·추적, LED 혼잡도 표시, JSON 전송 |
-| **최산해** | Backend | Flask API, MySQL/SQLite 저장, CSV 백업, AI 예측 (LinearRegression) |
-| **표현수** | Frontend | 캠퍼스 맵, Chart.js 대시보드, 반응형 UI, 실시간 폴링 |
 
 <br>
 
