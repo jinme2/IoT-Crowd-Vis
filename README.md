@@ -26,7 +26,7 @@
     <td align="center">
       <img src="docs/Pyo.png" width="50%" /><br/><br/>
       <b>표현수</b><br/>
-      <a href="https://github.com/Phytoncide">@Phytoncide</a><br/>
+      <a href="https://github.com/vygustn">@Phytoncide</a><br/>
       Frontend<br/>
       Chart.js · 반응형 UI · 실시간 폴링
     </td>
