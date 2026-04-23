@@ -1,0 +1,464 @@
+﻿<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>IT 융합대학</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <!-- 메인/공간 이미지 미리 로드 -->
+  <link rel="preload" as="image" href="{{ url_for('static', filename='img/it.webp') }}">
+
+  <style>
+    body{
+      margin:0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      background:#f3f3f3;
+      color:#222;
+    }
+    .wrap{
+      max-width:1400px;
+      margin:24px auto;
+      padding:0 16px 32px;
+    }
+    /* 좌우 레이아웃 */
+    .content{
+      display:flex;
+      gap:24px;
+      background:#fff;
+      border-radius:12px;
+      box-shadow:0 6px 18px rgba(0,0,0,.08);
+      padding:20px;
+
+      max-width: 1400px;     /* 최대 폭 제한 (원하면 숫자 변경) */
+      min-height: 400px;     /* 최소 높이 설정 */
+      height: 700px;          /* 내용에 맞게 늘어남, 고정하고 싶으면 예: 500px */
+      margin:0 auto;         /* 가운데 정렬 */
+    }
+    .main-panel{
+      flex:2;
+    }
+    .side-panel{
+      max-height: 80vh; /* 고정크기 */   
+      overflow-y: auto; /* 스크롤바 사용 */  
+      flex:1;
+      border-left:1px solid #eee;
+      padding-left:20px;
+      min-width:200px;
+    }
+    .side-panel::-webkit-scrollbar { /* 스크롤바 숨기기 */
+      width: 0; 
+      height: 0;  
+    }
+    .side-panel.active{
+      display:none;
+    }
+    .side-panel2{
+      flex:1;
+      border-left:1px solid #e9eef6;
+      padding-left:20px;
+      padding-right:20px;
+      min-width:200px;
+      background:#f6f8ff;
+      border-radius:10px;
+      display:none;
+    }
+    .side-panel2.active{
+      display:block;
+    }
+    .loading.hidden { display: none; }
+
+    /* 상세보기 그래프 아래 추가 정보 */
+    .detail-info
+    .detail-SubTitle{
+      font-size: 18px;
+      font-weight:600;
+    }
+    .detail-SubBody{
+      color: #3d397f;
+    }
+    .detail-info .detail-SubBody ul { margin:4px 0 0;}
+    .detail-info .detail-SubBody li { margin:0; }
+
+    /* 메인 이미지 */
+    .main-image {
+      width:80%;
+      border-radius:8px;
+      object-fit:cover;
+      max-height:400px;
+      /* 좌우 자동 → 중앙 정렬 */
+      display:block;
+      margin:0 auto;       
+    }
+
+    /* 설명 카드 */
+    .desc-card{
+      height: 150px;
+      margin-top:18px;
+      margin-right: 30px;
+      margin-left: 30px;
+      padding:16px 20px;
+      border-radius:8px;
+      background:#eef2ff;
+      border-left: 5px solid #7180e6;
+
+      display:flex; /* 가로 정렬 */
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:20px;
+    }
+    /* 설명 텍스트를 묶는 그룹 */
+    .info {
+      flex:1;/*weight(가중치 값)*/
+    }
+    .desc-title{
+      font-weight:600;
+      margin-bottom:8px;
+    }
+    .desc-body{
+      font-size:14px;
+      line-height:1.6;
+    }
+    /*차트를 넣을 박스*/
+    .box{
+      background: #ffffff;
+      border: 1px solid #ddd;
+      width:120px;             
+      height:120px;            /* 정사각형 */
+      border-radius:8px;
+      flex-shrink:0;  
+      
+    }
+    .chart-area {
+      padding:10px 10px 10px 10px;
+      width:100px;             
+      height:100px;      
+    }
+    .detail-btn{
+      border:none;
+      border-radius:8px;
+      background:#2563eb;
+      color:#fff;
+      cursor:pointer;
+      width: 100%;
+    }
+    .box.hidden { display:none; }
+
+
+    /* 층/공간 리스트 */
+    .floor{
+      border-bottom:1px solid #ddd;
+      padding:8px 0;
+    }
+    .floor-toggle{
+      width:100%;
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      padding:6px 0;
+      border:none;
+      background:none;
+      font-size:15px;
+      cursor:pointer;
+    }
+    .floor-toggle span.arrow{
+      font-size:12px;
+    }
+
+    .room-list{
+      list-style:none;
+      margin:4px 0 8px;
+      padding-left:14px;
+      display:none; /* 기본 접힘 */
+    }
+    .room-btn{
+      width:100%;
+      text-align:left;
+      margin:2px 0;
+      border-radius:6px;
+      border:none;
+      background:transparent;
+      cursor:pointer;
+      font-size:14px;
+    }
+    .room-btn:hover{
+      background:#eef2ff;
+    }
+    .room-btn.active{
+      background:#2563eb;
+      color:#fff;
+    }
+
+    .floor.open .room-list{
+      display:block;
+    }
+    .floor.open .floor-toggle span.arrow{
+      transform:rotate(90deg);
+    }
+
+    @media (max-width:768px){
+      .content{
+        flex-direction:column;
+      }
+      .side-panel{
+        border-left:none;
+        padding-left:0;
+        border-top:1px solid #eee;
+        padding-top:12px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>IT 융합대학</h1>
+    <hr>
+
+    <div class="content">
+      <!-- 왼쪽: 사진 + 설명 -->
+      <div class="main-panel">
+        <img id="mainImage"
+             class="main-image"
+             src="{{ url_for('static', filename='img/it.webp') }}"
+             alt="IT 융합대학 전경">
+
+        <div class="desc-card">
+          <div class="info">
+            <div id="spaceTitle" class="desc-title">IT 융합대학</div>
+            <div id="spaceDesc" class="desc-body">
+              IT융합대학은 호남지역 최초의 IT학과로 출발하여 
+              최첨단 시설과 설비로 지식기반 인텔리전트 기능을 갖추고 
+              시대의 혁신적 변화를 선도하는 IT분야의 미래 지향적 
+              고급 전문인력을 양성하는 IT 선도대학입니다.
+            </div>
+          </div>
+          <div class="box hidden">
+            <div class="chart-area"><canvas id="PieChart"></canvas></div>
+            <button id="detailBtn" class="detail-btn" type="button">상세보기</button>
+          </div>
+        </div>
+        
+      </div>
+
+      <!-- 오른쪽 층, 방 이름 리스트 -->
+      <aside id = "sidePanel1" class="side-panel">
+        <!-- 1층 -->
+        <div class="floor" data-floor="1F">
+          <button class="floor-toggle" type="button">
+            <span><h3>1층</h3></span>
+            <span class="arrow">▶</span>
+          </button>
+          <ul class="room-list">
+            <li>
+              <button class="room-btn"
+                      type="button"
+                      data-key="lobby">
+                ● C.space (로비)
+              </button>
+            </li>
+            <li>
+              <button class="room-btn"
+                      type="button"
+                      data-key="sspace">
+                ● S.space
+              </button>
+            </li>
+            <li>
+              <button class="room-btn"
+                      type="button"
+                      data-key="espace">
+                ● E.space
+              </button>
+            </li>
+          </ul>
+        </div>
+
+        <!-- 하위 리스트 추가작성 예정-->
+        <div class="floor" data-floor="2F">
+          <button class="floor-toggle" type="button">
+            <span><h3>2층</h3></span>
+            <span class="arrow">▶</span>
+          </button>
+          <ul class="room-list">
+            <li>
+              <button class="room-btn"
+                      type="button"
+                      data-key="tdmspace">
+                ● TDM.space
+              </button>
+            </li>
+            <li>
+              <button class="room-btn"
+                      type="button"
+                      data-key="mspace">
+                ● M.space
+              </button>
+            </li>
+          </ul>
+        </div>
+        <div class="floor" data-floor="3F">
+          <button class="floor-toggle" type="button">
+            <span><h3>3층</h3></span>
+            <span class="arrow">▶</span>
+          </button>
+        </div>
+        <div class="floor" data-floor="4F">
+          <button class="floor-toggle" type="button">
+            <span><h3>4층</h3></span>
+            <span class="arrow">▶</span>
+          </button>
+        </div>
+        <div class="floor" data-floor="5F">
+          <button class="floor-toggle" type="button">
+            <span><h3>5층</h3></span>
+            <span class="arrow">▶</span>
+          </button>
+        </div>
+        <div class="floor" data-floor="6F">
+          <button class="floor-toggle" type="button">
+            <span><h3>6층</h3></span>
+            <span class="arrow">▶</span>
+          </button>
+        </div>
+        <div class="floor" data-floor="7F">
+          <button class="floor-toggle" type="button">
+            <span><h3>7층</h3></span>
+            <span class="arrow">▶</span>
+          </button>
+        </div>
+        
+      </aside>
+      <aside id="sidePanel2" class="side-panel2">
+        <div id="detailContent">
+          <h3><div id="detailTitle" class="detail-title">상세 정보</div></h3><hr>
+          <div style="margin-top:12px; padding:12px; background:#fff; border-radius:10px; box-shadow:0 4px 12px rgba(0,0,0,0.06);">
+            <h4 style="margin:4px 0 12px;">시간대별 인원수</h4>
+            <canvas id="LineChart" height="220"></canvas>
+          </div>
+          <hr><br>
+          <div class="detail-info">
+              <div class="detail-SubTitle">
+                다음 주 이 시간 예상
+              </div>
+              <div class="detail-SubBody">
+                <ul><li><div id="predict">예측을 불러오는 중...</div></li></ul>
+              </div>
+              <br>
+              <div id="detailSubTitle" class="detail-SubTitle">
+                C.space 가 가장 붐비는 시간
+              </div>
+              <div class="detail-SubBody">
+                <ul><li><div id="mostCrowd">예측을 불러오는 중...</div></li></ul>
+              </div>
+          </div>
+        </div>
+        <div id="detailLoading" class="loading hidden">데이터를 불러오는 중...</div>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    const STATIC_PREFIX = "{{ url_for('static', filename='img/') }}";
+
+    // 공간별 데이터 정의
+    // 이미지 파일명은 static 폴더 기준: it_Cspace.jpg, it_Sspace.jpg, it_Espace.jpg …
+    // 용량문제로 속도 개선을 위해 리사이즈 및 webp로 변환함 12/02
+    const spaces = {
+      lobby: {
+        title: "C.space (로비)",
+        image: "it_Cspace.webp",
+        desc: [
+          "개인이나 팀 단위의 프로젝트를 자유롭게 수행할 수 있는 개방형 창의 공간입니다.",
+          "대형 멀티비전(집합 스크린)이 설치되어 프로젝트 수행 외에도 학회나 전시 공간으로 활용할 수 있습니다.",
+        ]
+      },
+      sspace: {
+        title: "S.space",
+        image: "it_Sspace.webp",
+        desc: [
+          "MZ세대들에게 친숙한 카페식 개방형 학습 공간입니다."
+        ]
+      },
+      espace: {
+        title: "E.space",
+        image: "it_Espace.webp",
+        desc: [
+          "다양한 교육 콘텐츠 제작과 인프라 구축을 위한 강의실입니다.",
+          "- 대형 스크린(멀티비전)",
+          "- 강의녹화 시스템 구축 및 추적카메라",
+          "- 보조 화면 2개",
+          "- 80석 좌석"
+        ]
+      },
+      tdmspace: {
+        title: "TDM.space",
+        image: "it_TDMspace.webp",
+        desc: [
+          "학생들이 자유롭게 토론하며 프로젝트를 수행하는 개방된 공간입니다."
+        ]
+      },
+      mspace: {
+        title: "M.space",
+        image: "it_Mspace.webp",
+        desc: [
+          "소규모의 학생들이 모여 그룹 스터디, 프로젝트 등을 진행할 수 있는 공간입니다.",
+          "1~4실 : 최대 4인",
+          "5실 : 최대 8인",
+          "",
+          "*사용 시 교학팀 방문"
+        ]
+      }
+    };
+
+    const mainImage = document.getElementById("mainImage");
+    const spaceTitle = document.getElementById("spaceTitle");
+    const detailTitle = document.getElementById("detailTitle");
+    const spaceDesc  = document.getElementById("spaceDesc");
+    const detailBtn = document.getElementById("detailBtn");
+    const sidePanel1 = document.getElementById("sidePanel1");
+    const sidePanel2 = document.getElementById("sidePanel2");
+    const detailSubTitle = document.getElementById("detailSubTitle");
+
+    // 층 접기/펼치기
+    document.querySelectorAll(".floor-toggle").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const floor = btn.closest(".floor");
+        floor.classList.toggle("open");
+      });
+    });
+
+    // 공간 선택 시 이미지/설명 변경
+    document.querySelectorAll(".room-btn").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const key = btn.dataset.key;
+        const info = spaces[key];
+        if (!info) return;
+
+        // active 스타일 처리
+        document.querySelectorAll(".room-btn").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+
+        // 이미지/텍스트 반영
+        mainImage.src = STATIC_PREFIX + info.image;
+        mainImage.alt = `IT 융합대학 - ${info.title}`;
+        spaceTitle.textContent = info.title;
+        detailTitle.textContent = info.title;
+        spaceDesc.innerHTML = info.desc.join("<br>");
+        detailSubTitle.textContent = `${info.title}가 가장 붐비는 시간`;
+        document.dispatchEvent(new CustomEvent("roomSelected", { detail: { key } }));
+      });
+    });
+
+    detailBtn?.addEventListener("click", () => {
+      sidePanel1?.classList.toggle("active");
+      sidePanel2?.classList.toggle("active");
+    });
+    
+  </script>
+</body>
+</html>
+
+<script src="{{ url_for('static', filename='js/api_crowd.js') }}"></script>
+<script src="{{ url_for('static', filename='js/charts_line.js') }}"></script>
+<script src="{{ url_for('static', filename='js/charts_pie.js') }}"></script>
+<script src="{{ url_for('static', filename='js/page_itcampus.js') }}"></script>
