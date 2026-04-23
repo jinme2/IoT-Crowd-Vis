@@ -225,6 +225,17 @@ IoT-Crowd-Vis/
 
 <br>
 
+## 📸 실제 동작 사진
+
+<table>
+  <tr>
+    <td><img src="docs/KakaoTalk_Photo_2026-04-23-22-50-04.jpeg" width="100%" /></td>
+    <td><img src="docs/KakaoTalk_Photo_2026-04-23-22-50-25.jpeg" width="100%" /></td>
+  </tr>
+</table>
+
+<br>
+
 ## 🔗 관련 링크
 
 - [📄 Notion 프로젝트 문서](https://www.notion.so/2de71605d6dc818fa857ed4792eda407?source=copy_link)
